@@ -103,11 +103,15 @@ function ChatScreen() {
         const job = RNFS.downloadFile({
           fromUrl: MODEL_URL,
           toFile: TEMP_PATH,
-          progressInterval: 500,
+          begin: () => {},
+          progressInterval: 250,
           progress: res => {
-            const total = res.contentLength > 0 ? res.contentLength : MODEL_SIZE;
+            const total =
+              res.contentLength && res.contentLength > 100000000
+                ? res.contentLength
+                : MODEL_SIZE;
             setDownloaded(res.bytesWritten);
-            setProgress(res.bytesWritten / total);
+            setProgress(Math.min(1, Math.max(0, res.bytesWritten / total)));
           },
         });
         const result = await job.promise;
@@ -234,6 +238,7 @@ function ChatScreen() {
             <Text style={styles.hint}>
               Keep the app open and Wi-Fi on. After this, it works offline.
             </Text>
+            <ActivityIndicator color={C.accent} style={{ marginTop: 14 }} />
           </View>
         )}
 
