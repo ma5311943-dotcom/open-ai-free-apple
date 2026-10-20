@@ -1,6 +1,6 @@
 /**
- * OfflineAI - on-device chat using llama.rn (llama.cpp).
- * Downloads a GGUF model once, then runs 100% offline.
+ * OfflineAI - On-device AI assistant using llama.rn (llama.cpp).
+ * Option 2: Modern Apple Light Theme with Full-Screen Notch & Dark Code Blocks.
  *
  * @format
  */
@@ -10,9 +10,12 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -22,36 +25,47 @@ import {
 import RNFS from 'react-native-fs';
 import { initLlama, LlamaContext } from 'llama.rn';
 
-// ---- Model config ---------------------------------------------------------
+// ---- Model configuration --------------------------------------------------
 const MODEL_NAME = 'Qwen2.5 1.5B Instruct';
 const MODEL_FILE = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
 const MODEL_URL =
   'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/' +
   MODEL_FILE;
-const MODEL_SIZE = 1117320736; // bytes, used to detect incomplete downloads
+const MODEL_SIZE = 1117320736;
 const MODEL_PATH = `${RNFS.DocumentDirectoryPath}/${MODEL_FILE}`;
 const TEMP_PATH = `${MODEL_PATH}.part`;
+const SETTINGS_PATH = `${RNFS.DocumentDirectoryPath}/settings.json`;
 
 const SYSTEM_PROMPT =
   'You are a helpful, concise assistant running fully offline on a phone. ' +
   'Answer clearly. Use short code examples when useful.';
 const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '</s>', '<|eot_id|>'];
-const MAX_HISTORY = 8; // last N messages sent to the model (keeps context small)
+const MAX_HISTORY = 8;
 
 type Phase = 'checking' | 'downloading' | 'loading' | 'ready' | 'error';
 type Role = 'user' | 'assistant';
 type Message = { id: string; role: Role; content: string };
 
+// ---- Design tokens (Option 2: Modern Apple Light Theme) -------------------
 const C = {
-  bg: '#0B0D14',
-  surface: '#151926',
-  surface2: '#1D2233',
-  border: '#262C40',
-  text: '#E8EAF2',
-  muted: '#8A90A6',
-  accent: '#7C6CF6',
-  accent2: '#22D3EE',
-  danger: '#F87171',
+  bg: '#F3F4F6', // Soft crisp platinum canvas (Expo Go style)
+  surface: '#FFFFFF', // Pure white cards & navigation
+  surface2: '#F9FAFB', // Off-white for secondary cards
+  border: '#E5E7EB', // Subtle Apple gray border
+  borderDark: '#D1D5DB', // Input field border
+  text: '#111827', // Deep charcoal/black
+  textSecondary: '#4B5563', // Secondary body text
+  muted: '#9CA3AF', // Neutral gray
+  accent: '#4F46E5', // Vibrant Indigo/Royal Blue
+  accentSoft: '#EEF2FF', // Tinted indigo for chips
+  accentGreen: '#10B981', // Mint green dot
+  accentGreenBg: '#ECFDF5', // Soft green badge background
+  codeBg: '#181825', // Deep dark obsidian for code blocks
+  codeText: '#CDD6F4', // Crisp monospaced code text
+  codeBorder: '#27273A', // Dark code border
+  codeHeader: '#1E1E2E', // Dark code header
+  codeLang: '#89DCEB', // Cyan language label
+  danger: '#EF4444', // Red
 };
 
 function formatMB(bytes: number) {
@@ -60,10 +74,10 @@ function formatMB(bytes: number) {
 
 function App() {
   return (
-    <SafeAreaView style={styles.root}>
-      <StatusBar barStyle="light-content" />
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" />
       <ChatScreen />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -77,10 +91,44 @@ function ChatScreen() {
   const [generating, setGenerating] = useState(false);
   const [speed, setSpeed] = useState('');
 
+  const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tempPrompt, setTempPrompt] = useState(SYSTEM_PROMPT);
+
   const ctxRef = useRef<LlamaContext | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
 
-  // ---- Download (once) + load model --------------------------------------
+  // Load saved personalization
+  useEffect(() => {
+    RNFS.exists(SETTINGS_PATH).then(exists => {
+      if (exists) {
+        RNFS.readFile(SETTINGS_PATH, 'utf8')
+          .then(raw => {
+            const data = JSON.parse(raw);
+            if (data.systemPrompt) {
+              setSystemPrompt(data.systemPrompt);
+              setTempPrompt(data.systemPrompt);
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, []);
+
+  const saveSettings = useCallback(async () => {
+    const nextPrompt = tempPrompt.trim() || SYSTEM_PROMPT;
+    setSystemPrompt(nextPrompt);
+    setSettingsOpen(false);
+    try {
+      await RNFS.writeFile(
+        SETTINGS_PATH,
+        JSON.stringify({ systemPrompt: nextPrompt }),
+        'utf8',
+      );
+    } catch {}
+  }, [tempPrompt]);
+
+  // Model preparation
   const prepareModel = useCallback(async () => {
     try {
       setError('');
@@ -148,7 +196,7 @@ function ChatScreen() {
     };
   }, [prepareModel]);
 
-  // ---- Chat ---------------------------------------------------------------
+  // Send message
   const send = useCallback(async () => {
     const text = input.trim();
     const ctx = ctxRef.current;
@@ -174,7 +222,7 @@ function ChatScreen() {
       const result = await ctx.completion(
         {
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             ...history.map(m => ({ role: m.role, content: m.content })),
           ],
           n_predict: 512,
@@ -208,7 +256,7 @@ function ChatScreen() {
     } finally {
       setGenerating(false);
     }
-  }, [input, messages, generating]);
+  }, [input, messages, generating, systemPrompt]);
 
   const stop = useCallback(() => {
     ctxRef.current?.stopCompletion();
@@ -219,7 +267,7 @@ function ChatScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.logo}>◆ OfflineAI</Text>
-        <Text style={styles.subtitle}>{MODEL_NAME} · on-device</Text>
+        <Text style={styles.subtitle}>{MODEL_NAME} · On-Device</Text>
 
         {phase === 'checking' && <Status text="Checking model…" />}
 
@@ -263,14 +311,26 @@ function ChatScreen() {
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {/* Full-screen Edge-to-Edge Navigation Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>◆ OfflineAI</Text>
-        <View style={styles.badge}>
-          <View style={styles.dot} />
-          <Text style={styles.badgeText}>Offline ready</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>OfflineAI</Text>
+          <View style={styles.badge}>
+            <View style={styles.dot} />
+            <Text style={styles.badgeText}>On-Device AI</Text>
+          </View>
         </View>
+        <Pressable
+          style={({ pressed }) => [styles.settingsBtn, pressed && styles.pressed]}
+          onPress={() => {
+            setTempPrompt(systemPrompt);
+            setSettingsOpen(true);
+          }}>
+          <Text style={styles.settingsIcon}>⚙️</Text>
+        </Pressable>
       </View>
 
+      {/* Chat Messages */}
       <FlatList
         ref={listRef}
         data={messages}
@@ -278,11 +338,41 @@ function ChatScreen() {
         contentContainerStyle={styles.list}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Ask anything</Text>
-            <Text style={styles.hint}>
-              Try: "What is a constructor in Java?"
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>What can I help you build today?</Text>
+            <Text style={styles.emptySubtitle}>
+              Select an action suggestion or type anything below:
             </Text>
+
+            <View style={styles.chipsGrid}>
+              <Pressable
+                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                onPress={() => setInput('Explain this code:\n')}>
+                <Text style={styles.chipIcon}>&lt;/&gt;</Text>
+                <Text style={styles.chipText}>Explain Code</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                onPress={() => setInput('Summarize the key points of:\n')}>
+                <Text style={styles.chipIcon}>📝</Text>
+                <Text style={styles.chipText}>Summarize</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                onPress={() => setInput('Draft a professional email about:\n')}>
+                <Text style={styles.chipIcon}>✉️</Text>
+                <Text style={styles.chipText}>Write Email</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                onPress={() => setInput('Brainstorm creative ideas for:\n')}>
+                <Text style={styles.chipIcon}>💡</Text>
+                <Text style={styles.chipText}>Brainstorm</Text>
+              </Pressable>
+            </View>
           </View>
         }
         renderItem={({ item }) => (
@@ -291,49 +381,214 @@ function ChatScreen() {
               styles.bubble,
               item.role === 'user' ? styles.userBubble : styles.botBubble,
             ]}>
-            <Text style={styles.bubbleText} selectable>
-              {item.content || '…'}
-            </Text>
+            {item.role === 'assistant' && (
+              <View style={styles.botHeader}>
+                <View style={styles.botBadge}>
+                  <Text style={styles.botBadgeText}>◆</Text>
+                </View>
+                <Text style={styles.botName}>OfflineAI</Text>
+              </View>
+            )}
+            <MessageContent content={item.content} role={item.role} />
           </View>
         )}
       />
 
       {!!speed && <Text style={styles.speed}>{speed}</Text>}
 
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Message…"
-          placeholderTextColor={C.muted}
-          multiline
-          editable={!generating}
-        />
-        {generating ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.sendBtn,
-              styles.stopBtn,
-              pressed && styles.pressed,
-            ]}
-            onPress={stop}>
-            <Text style={styles.sendText}>■</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            style={({ pressed }) => [
-              styles.sendBtn,
-              !input.trim() && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-            onPress={send}
-            disabled={!input.trim()}>
-            <Text style={styles.sendText}>➤</Text>
-          </Pressable>
-        )}
+      {/* Floating Capsule Input Bar */}
+      <View style={styles.inputContainer}>
+        <View style={styles.inputCard}>
+          <TextInput
+            style={styles.input}
+            value={input}
+            onChangeText={setInput}
+            placeholder="Ask OfflineAI…"
+            placeholderTextColor={C.muted}
+            multiline
+            editable={!generating}
+          />
+          {generating ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.sendBtn,
+                styles.stopBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={stop}>
+              <Text style={styles.sendText}>■</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [
+                styles.sendBtn,
+                !input.trim() && styles.disabled,
+                pressed && styles.pressed,
+              ]}
+              onPress={send}
+              disabled={!input.trim()}>
+              <Text style={styles.sendText}>➔</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
+
+      {/* Settings Modal (Light Theme) */}
+      <Modal
+        visible={settingsOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSettingsOpen(false)}>
+        <SafeAreaView style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>⚙️ AI Personalization</Text>
+              <Pressable onPress={() => setSettingsOpen(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.settingLabel}>Custom Instructions & Persona</Text>
+              <Text style={styles.settingHint}>
+                Tell the AI how to answer (e.g. short responses, bullet points, tone):
+              </Text>
+
+              <TextInput
+                style={styles.systemInput}
+                value={tempPrompt}
+                onChangeText={setTempPrompt}
+                multiline
+                placeholder="Type your custom instructions here..."
+                placeholderTextColor={C.muted}
+              />
+
+              <Text style={styles.presetTitle}>Quick Presets</Text>
+              <View style={styles.presetRow}>
+                <Pressable
+                  style={styles.presetChip}
+                  onPress={() =>
+                    setTempPrompt(
+                      'Always give very short, concise responses. Use brief bullet points. Avoid filler.',
+                    )
+                  }>
+                  <Text style={styles.presetChipText}>⚡ Short & Concise</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.presetChip}
+                  onPress={() =>
+                    setTempPrompt(
+                      'You are an expert developer. Provide clean code snippets and brief, direct explanations.',
+                    )
+                  }>
+                  <Text style={styles.presetChipText}>💻 Code Expert</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.presetChip}
+                  onPress={() =>
+                    setTempPrompt(
+                      'You are a helpful, concise assistant running fully offline on a phone. Answer clearly.',
+                    )
+                  }>
+                  <Text style={styles.presetChipText}>🧠 Default</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={[styles.modalBtn, styles.clearBtn]}
+                  onPress={() => {
+                    setMessages([]);
+                    setSettingsOpen(false);
+                  }}>
+                  <Text style={styles.clearBtnText}>Clear Chat</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modalBtn, styles.saveBtn]}
+                  onPress={saveSettings}>
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </KeyboardAvoidingView>
+  );
+}
+
+// ---- Markdown Code Block & Message Renderer -------------------------------
+function MessageContent({ content, role }: { content: string; role: Role }) {
+  if (role === 'user' || !content.includes('```')) {
+    return (
+      <Text
+        style={role === 'user' ? styles.userText : styles.botText}
+        selectable>
+        {content || '…'}
+      </Text>
+    );
+  }
+
+  const parts = content.split(/(```[\s\S]*?```)/g);
+  return (
+    <View style={styles.messageCol}>
+      {parts.map((part, index) => {
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const body = part.slice(3, -3).trim();
+          const newlineIdx = body.indexOf('\n');
+          let lang = 'code';
+          let codeText = body;
+          if (newlineIdx !== -1) {
+            const firstLine = body.slice(0, newlineIdx).trim();
+            if (/^[a-zA-Z0-9_#+-]+$/.test(firstLine)) {
+              lang = firstLine;
+              codeText = body.slice(newlineIdx + 1);
+            }
+          }
+          return <CodeCard key={index} code={codeText} lang={lang} />;
+        }
+        if (!part.trim()) {
+          return null;
+        }
+        return (
+          <Text key={index} style={styles.botText} selectable>
+            {part.trim()}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
+function CodeCard({ code, lang }: { code: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyCode = async () => {
+    try {
+      setCopied(true);
+      await Share.share({ message: code });
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <View style={styles.codeCard}>
+      <View style={styles.codeHeader}>
+        <Text style={styles.codeLang}>{lang.toUpperCase()}</Text>
+        <Pressable
+          style={({ pressed }) => [styles.copyBtn, pressed && styles.pressed]}
+          onPress={copyCode}>
+          <Text style={styles.copyText}>{copied ? '✓ Copied' : 'Copy 📋'}</Text>
+        </Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <Text style={styles.codeContent} selectable>
+          {code}
+        </Text>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -346,6 +601,7 @@ function Status({ text }: { text: string }) {
   );
 }
 
+// ---- Stylesheet (Modern Apple Light Theme Option 2) -----------------------
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   center: {
@@ -354,18 +610,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingTop: Platform.OS === 'ios' ? 52 : 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
   },
   logo: { color: C.text, fontSize: 32, fontWeight: '800', letterSpacing: 0.5 },
-  subtitle: { color: C.muted, marginTop: 6, marginBottom: 28 },
+  subtitle: { color: C.textSecondary, marginTop: 6, marginBottom: 28, fontSize: 15 },
   status: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   card: {
     width: '100%',
     backgroundColor: C.surface,
     borderColor: C.border,
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 20,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardTitle: { color: C.text, fontSize: 16, fontWeight: '700' },
   cardText: { color: C.text, fontSize: 14 },
@@ -384,94 +647,288 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { color: '#fff', fontWeight: '700' },
-  pressed: { opacity: 0.7, transform: [{ scale: 0.97 }] },
+  pressed: { opacity: 0.7, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.4 },
+
+  // Edge-to-Edge Navigation Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: Platform.OS === 'ios' ? 14 : 12,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 52 : 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
     backgroundColor: C.surface,
   },
-  headerTitle: { color: C.text, fontSize: 20, fontWeight: '800' },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerTitle: { color: C.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: C.surface2,
+    backgroundColor: C.accentGreenBg,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 999,
   },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent2 },
-  badgeText: { color: C.muted, fontSize: 12 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accentGreen },
+  badgeText: { color: C.accentGreen, fontSize: 12, fontWeight: '700' },
+  settingsBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsIcon: { fontSize: 16 },
+
+  // Chat message list
   list: {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 16,
-    gap: 12,
+    gap: 14,
     flexGrow: 1,
   },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  emptyTitle: { color: C.text, fontSize: 22, fontWeight: '700' },
+  emptyCard: {
+    backgroundColor: C.surface,
+    borderRadius: 24,
+    padding: 20,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  emptyTitle: { color: C.text, fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  emptySubtitle: { color: C.textSecondary, fontSize: 13, marginBottom: 16 },
+  chipsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  suggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+  },
+  chipIcon: { fontSize: 14, color: C.accent, fontWeight: '700' },
+  chipText: { color: C.text, fontSize: 13, fontWeight: '600' },
+
+  // Message Bubbles
   bubble: {
-    maxWidth: '86%',
+    maxWidth: '88%',
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 18,
-    marginVertical: 4,
   },
   userBubble: {
     alignSelf: 'flex-end',
     backgroundColor: C.accent,
     borderBottomRightRadius: 4,
+    shadowColor: C.accent,
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 3,
   },
   botBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: C.surface2,
-    borderColor: C.border,
+    backgroundColor: C.surface,
     borderWidth: 1,
+    borderColor: C.border,
     borderBottomLeftRadius: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 1,
   },
-  bubbleText: { color: C.text, fontSize: 15, lineHeight: 22 },
-  speed: { color: C.muted, fontSize: 11, textAlign: 'center', marginBottom: 4 },
-  inputRow: {
+  botHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
+    marginBottom: 6,
+  },
+  botBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: C.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  botBadgeText: { fontSize: 9, color: C.accent, fontWeight: '900' },
+  botName: { fontSize: 12, fontWeight: '700', color: C.muted },
+  userText: { color: '#FFFFFF', fontSize: 15, lineHeight: 22 },
+  botText: { color: C.text, fontSize: 15, lineHeight: 22 },
+  messageCol: { gap: 8 },
+
+  // Code Block in Dark Obsidian Theme with Copy
+  codeCard: {
+    backgroundColor: C.codeBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.codeBorder,
+    overflow: 'hidden',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  codeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: C.codeHeader,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: C.codeBorder,
+  },
+  codeLang: {
+    color: C.codeLang,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  copyBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  copyText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  codeContent: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: C.codeText,
+    fontSize: 13,
+    lineHeight: 19,
+    padding: 12,
+  },
+
+  speed: { color: C.muted, fontSize: 11, textAlign: 'center', marginBottom: 4 },
+
+  // Bottom Input Bar
+  inputContainer: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 14,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 14,
+    backgroundColor: C.bg,
+  },
+  inputCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 26,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 3,
   },
   input: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     maxHeight: 120,
     color: C.text,
-    backgroundColor: C.surface2,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 10,
     fontSize: 15,
+    paddingVertical: 6,
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: C.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stopBtn: { backgroundColor: C.danger },
-  sendText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  sendText: { color: '#fff', fontSize: 17, fontWeight: '800' },
+
+  // Settings Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 22,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: -4 },
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    marginBottom: 16,
+  },
+  modalTitle: { color: C.text, fontSize: 18, fontWeight: '800' },
+  modalClose: { color: C.muted, fontSize: 20, fontWeight: '600', padding: 4 },
+  settingLabel: { color: C.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  settingHint: { color: C.textSecondary, fontSize: 13, marginBottom: 12 },
+  systemInput: {
+    backgroundColor: C.surface2,
+    color: C.text,
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 90,
+    textAlignVertical: 'top',
+    borderColor: C.border,
+    borderWidth: 1,
+  },
+  presetTitle: { color: C.text, fontSize: 14, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  presetChip: {
+    backgroundColor: C.surface2,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderColor: C.border,
+    borderWidth: 1,
+  },
+  presetChipText: { color: C.text, fontSize: 12, fontWeight: '600' },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 10, paddingBottom: 10 },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearBtn: { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.danger },
+  clearBtnText: { color: C.danger, fontWeight: '700', fontSize: 14 },
+  saveBtn: { backgroundColor: C.accent },
+  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
 
 export default App;
