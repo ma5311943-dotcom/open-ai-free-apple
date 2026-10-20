@@ -27,6 +27,11 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      - name: Patch RNFS Podspec Path Bug
+        run: |
+          sed -i '' "s/File.read('package.json')/File.read(File.join(__dir__, 'package.json'))/g" node_modules/react-native-fs/RNFS.podspec || true
+          cp package.json ios/package.json || true
+
       - name: Download llama.rn Native Prebuilt Frameworks
         run: node ./node_modules/llama.rn/install/download-native-artifacts.js
 
