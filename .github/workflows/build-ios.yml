@@ -19,21 +19,22 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Setup Ruby and Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
       - name: Install npm dependencies
         run: npm install
 
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
+      - name: Download llama.rn Native Prebuilt Frameworks
+        run: node ./node_modules/llama.rn/install/download-native-artifacts.js
 
       - name: Install CocoaPods
         run: |
           cd ios
-          pod install --repo-update
+          bundle exec pod install
 
       - name: Build iOS App (.app)
         run: |
