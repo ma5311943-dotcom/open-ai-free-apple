@@ -10,10 +10,10 @@
     "test": "jest"
   },
   "dependencies": {
+    "llama.rn": "^0.13.0-rc.7",
     "react": "19.3.0",
     "react-native": "0.88.0",
-    "@react-native/new-app-screen": "0.88.0",
-    "react-native-safe-area-context": "^5.5.2"
+    "react-native-fs": "^2.20.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
