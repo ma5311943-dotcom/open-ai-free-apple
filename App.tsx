@@ -8,7 +8,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Image as RNImage,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -20,18 +23,24 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import { initLlama, LlamaContext } from 'llama.rn';
 import {
   Brain,
+  Camera,
   Check,
+  ChevronDown,
   Code2,
   Copy,
   FileText,
+  FileUp,
+  Image as ImageIcon,
   Lightbulb,
   Mail,
+  Plus,
   Send,
   Settings,
   Sparkles,
@@ -40,6 +49,13 @@ import {
   X,
   Zap,
 } from 'lucide-react-native';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import {
+  pick,
+  types,
+  isErrorWithCode,
+  errorCodes,
+} from '@react-native-documents/picker';
 
 // ---- Model configuration --------------------------------------------------
 const MODEL_NAME = 'Qwen2.5 1.5B Instruct';
@@ -60,7 +76,20 @@ const MAX_HISTORY = 8;
 
 type Phase = 'checking' | 'downloading' | 'loading' | 'ready' | 'error';
 type Role = 'user' | 'assistant';
-type Message = { id: string; role: Role; content: string };
+type Attachment = {
+  id: string;
+  type: 'image' | 'document';
+  uri: string;
+  name: string;
+  size?: number;
+  extractedText?: string;
+};
+type Message = {
+  id: string;
+  role: Role;
+  content: string;
+  attachment?: Attachment;
+};
 
 // ---- Design tokens (Option 2: Modern Apple Light Theme) -------------------
 const C = {
@@ -110,9 +139,28 @@ function ChatScreen() {
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tempPrompt, setTempPrompt] = useState(SYSTEM_PROMPT);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
 
   const ctxRef = useRef<LlamaContext | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
+
+  // Monitor keyboard visibility for modal adjustment
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true),
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false),
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Load saved personalization
   useEffect(() => {
@@ -132,6 +180,7 @@ function ChatScreen() {
   }, []);
 
   const saveSettings = useCallback(async () => {
+    Keyboard.dismiss();
     const nextPrompt = tempPrompt.trim() || SYSTEM_PROMPT;
     setSystemPrompt(nextPrompt);
     setSettingsOpen(false);
@@ -212,19 +261,123 @@ function ChatScreen() {
     };
   }, [prepareModel]);
 
+  // Attachment handlers
+  const handleTakePhoto = async () => {
+    setAttachMenuOpen(false);
+    try {
+      const res = await launchCamera({
+        mediaType: 'photo',
+        quality: 0.8,
+        saveToPhotos: false,
+      });
+      if (res.didCancel || !res.assets || !res.assets[0]?.uri) return;
+      const asset = res.assets[0];
+      setAttachment({
+        id: `${Date.now()}`,
+        type: 'image',
+        uri: asset.uri || '',
+        name: asset.fileName || 'camera_photo.jpg',
+        size: asset.fileSize,
+      });
+    } catch (e: any) {
+      Alert.alert('Camera Notice', e?.message || 'Could not open camera.');
+    }
+  };
+
+  const handleChoosePhoto = async () => {
+    setAttachMenuOpen(false);
+    try {
+      const res = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.8,
+        selectionLimit: 1,
+      });
+      if (res.didCancel || !res.assets || !res.assets[0]?.uri) return;
+      const asset = res.assets[0];
+      setAttachment({
+        id: `${Date.now()}`,
+        type: 'image',
+        uri: asset.uri || '',
+        name: asset.fileName || 'photo.jpg',
+        size: asset.fileSize,
+      });
+    } catch (e: any) {
+      Alert.alert('Photo Notice', e?.message || 'Could not select photo.');
+    }
+  };
+
+  const handlePickDocument = async () => {
+    setAttachMenuOpen(false);
+    try {
+      const [doc] = await pick({
+        type: [types.pdf, types.plainText, types.allFiles],
+        mode: 'import',
+      });
+      if (!doc?.uri) return;
+
+      let extracted = '';
+      try {
+        const lower = (doc.name || '').toLowerCase();
+        if (
+          lower.endsWith('.txt') ||
+          lower.endsWith('.md') ||
+          lower.endsWith('.json') ||
+          lower.endsWith('.csv')
+        ) {
+          extracted = await RNFS.readFile(doc.uri, 'utf8');
+        } else if (lower.endsWith('.pdf')) {
+          const raw = await RNFS.readFile(doc.uri, 'ascii');
+          const matches =
+            raw.match(/\((.*?)\)\s*Tj/g) || raw.match(/\[(.*?)\]\s*TJ/g);
+          if (matches) {
+            extracted = matches
+              .map(m => m.replace(/[\(\)\[\]]|Tj|TJ/g, '').trim())
+              .filter(Boolean)
+              .join(' ');
+          }
+        }
+      } catch {}
+
+      setAttachment({
+        id: `${Date.now()}`,
+        type: 'document',
+        uri: doc.uri,
+        name: doc.name || 'document.pdf',
+        size: doc.size ?? undefined,
+        extractedText: extracted || undefined,
+      });
+    } catch (e: any) {
+      if (!isErrorWithCode(e) || e.code !== errorCodes.OPERATION_CANCELED) {
+        Alert.alert('File Notice', e?.message || 'Could not select document.');
+      }
+    }
+  };
+
   // Send message
   const send = useCallback(async () => {
-    const text = input.trim();
+    const rawText = input.trim();
+    const currentAttach = attachment;
     const ctx = ctxRef.current;
-    if (!text || !ctx || generating) {
+    if ((!rawText && !currentAttach) || !ctx || generating) {
       return;
     }
 
-    const userMsg: Message = { id: `${Date.now()}u`, role: 'user', content: text };
+    const text =
+      rawText ||
+      (currentAttach?.type === 'image'
+        ? 'Analyze this photo:'
+        : 'Summarize this document:');
+    const userMsg: Message = {
+      id: `${Date.now()}u`,
+      role: 'user',
+      content: text,
+      attachment: currentAttach || undefined,
+    };
     const botId = `${Date.now()}a`;
     const history = [...messages, userMsg].slice(-MAX_HISTORY);
 
     setInput('');
+    setAttachment(null);
     setSpeed('');
     setGenerating(true);
     setMessages(prev => [
@@ -233,13 +386,30 @@ function ChatScreen() {
       { id: botId, role: 'assistant', content: '' },
     ]);
 
+    // Build context with attachment for offline AI
+    let promptWithAttachment = text;
+    if (currentAttach) {
+      if (currentAttach.extractedText) {
+        promptWithAttachment = `[Attached Document: "${currentAttach.name}"]\n--- Document Content ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Document ---\n\n${text}`;
+      } else if (currentAttach.type === 'image') {
+        promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n${text}`;
+      } else {
+        promptWithAttachment = `[Attached File: "${currentAttach.name}"]\n${text}`;
+      }
+    }
+
     let streamed = '';
     try {
       const result = await ctx.completion(
         {
           messages: [
             { role: 'system', content: systemPrompt },
-            ...history.map(m => ({ role: m.role, content: m.content })),
+            ...history.map((m, idx) => {
+              if (idx === history.length - 1 && currentAttach) {
+                return { role: m.role, content: promptWithAttachment };
+              }
+              return { role: m.role, content: m.content };
+            }),
           ],
           n_predict: 512,
           temperature: 0.7,
@@ -272,7 +442,7 @@ function ChatScreen() {
     } finally {
       setGenerating(false);
     }
-  }, [input, messages, generating, systemPrompt]);
+  }, [input, attachment, messages, generating, systemPrompt]);
 
   const stop = useCallback(() => {
     ctxRef.current?.stopCompletion();
@@ -282,7 +452,11 @@ function ChatScreen() {
   if (phase !== 'ready') {
     return (
       <View style={styles.center}>
-        <Text style={styles.logo}>OfflineAI</Text>
+        <Text style={styles.logo}>
+          <Text style={{ color: C.accent }}>Ilyas</Text>
+          <Text style={{ color: '#7C3AED' }}>Ka</Text>
+          <Text style={{ color: '#EC4899' }}>Gpt</Text>
+        </Text>
         <Text style={styles.subtitle}>{MODEL_NAME} · On-Device</Text>
 
         {phase === 'checking' && <Status text="Checking model…" />}
@@ -330,7 +504,11 @@ function ChatScreen() {
       {/* Full-screen Edge-to-Edge Navigation Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>OfflineAI</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            <Text style={{ color: C.accent }}>Ilyas</Text>
+            <Text style={{ color: '#7C3AED' }}>Ka</Text>
+            <Text style={{ color: '#EC4899' }}>Gpt</Text>
+          </Text>
           <View style={styles.badge}>
             <View style={styles.dot} />
             <Text style={styles.badgeText}>On-Device AI</Text>
@@ -352,6 +530,8 @@ function ChatScreen() {
         data={messages}
         keyExtractor={m => m.id}
         contentContainerStyle={styles.list}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
@@ -402,9 +582,65 @@ function ChatScreen() {
                 <View style={styles.botBadge}>
                   <Sparkles size={10} color={C.accent} />
                 </View>
-                <Text style={styles.botName}>OfflineAI</Text>
+                <Text style={styles.botName}>
+                  <Text style={{ color: C.accent }}>Ilyas</Text>
+                  <Text style={{ color: '#7C3AED' }}>KaGpt</Text>
+                </Text>
               </View>
             )}
+
+            {/* Attached media inside bubble */}
+            {item.attachment && (
+              <View style={styles.bubbleAttachmentBox}>
+                {item.attachment.type === 'image' ? (
+                  <RNImage
+                    source={{ uri: item.attachment.uri }}
+                    style={styles.bubbleImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.bubbleDocCard,
+                      item.role === 'user' && styles.bubbleDocCardUser,
+                    ]}>
+                    <View
+                      style={[
+                        styles.bubbleDocIcon,
+                        item.role === 'user' && styles.bubbleDocIconUser,
+                      ]}>
+                      <FileText
+                        size={18}
+                        color={item.role === 'user' ? '#FFFFFF' : C.accent}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.bubbleDocName,
+                          item.role === 'user' && { color: '#FFFFFF' },
+                        ]}
+                        numberOfLines={1}>
+                        {item.attachment.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.bubbleDocMeta,
+                          item.role === 'user' && {
+                            color: 'rgba(255,255,255,0.7)',
+                          },
+                        ]}>
+                        PDF Document ·{' '}
+                        {item.attachment.size
+                          ? formatMB(item.attachment.size)
+                          : 'File'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
             <MessageContent content={item.content} role={item.role} />
           </View>
         )}
@@ -414,12 +650,60 @@ function ChatScreen() {
 
       {/* Floating Capsule Input Bar */}
       <View style={styles.inputContainer}>
+        {/* Attachment preview if an image/doc is picked */}
+        {attachment && (
+          <View style={styles.previewBar}>
+            {attachment.type === 'image' ? (
+              <RNImage
+                source={{ uri: attachment.uri }}
+                style={styles.previewThumb}
+              />
+            ) : (
+              <View style={styles.previewDocIcon}>
+                <FileText size={16} color={C.accent} />
+              </View>
+            )}
+            <View style={styles.previewInfo}>
+              <Text style={styles.previewName} numberOfLines={1}>
+                {attachment.name}
+              </Text>
+              <Text style={styles.previewSub}>
+                {attachment.type === 'image'
+                  ? 'Photo attached'
+                  : 'Document attached'}
+                {attachment.extractedText ? ' · Text extracted' : ''}
+              </Text>
+            </View>
+            <Pressable
+              style={styles.previewCloseBtn}
+              onPress={() => setAttachment(null)}
+              hitSlop={8}>
+              <X size={15} color={C.muted} />
+            </Pressable>
+          </View>
+        )}
+
         <View style={styles.inputCard}>
+          {/* Plus / Attach Button */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.attachBtn,
+              pressed && styles.pressed,
+            ]}
+            onPress={() => setAttachMenuOpen(true)}
+            accessibilityLabel="Attach photo or document">
+            <Plus size={20} color={C.textSecondary} />
+          </Pressable>
+
           <TextInput
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder="Ask OfflineAI…"
+            placeholder={
+              attachment
+                ? 'Add instructions or tap Send…'
+                : 'Ask IlyasKaGpt…'
+            }
             placeholderTextColor={C.muted}
             multiline
             editable={!generating}
@@ -438,37 +722,150 @@ function ChatScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.sendBtn,
-                !input.trim() && styles.disabled,
+                !input.trim() && !attachment && styles.disabled,
                 pressed && styles.pressed,
               ]}
               onPress={send}
-              disabled={!input.trim()}>
+              disabled={!input.trim() && !attachment}>
               <Send size={15} color="#FFFFFF" style={{ marginLeft: 2 }} />
             </Pressable>
           )}
         </View>
       </View>
 
+      {/* Attachment Bottom Sheet Modal */}
+      <Modal
+        visible={attachMenuOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAttachMenuOpen(false)}>
+        <Pressable
+          style={styles.attachOverlay}
+          onPress={() => setAttachMenuOpen(false)}>
+          <View style={styles.attachSheet}>
+            <View style={styles.attachHeader}>
+              <Text style={styles.attachTitle}>Attach to IlyasKaGpt</Text>
+              <Pressable
+                onPress={() => setAttachMenuOpen(false)}
+                hitSlop={8}>
+                <X size={18} color={C.muted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.attachOptionsRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.attachOptionCard,
+                  pressed && styles.pressed,
+                ]}
+                onPress={handleTakePhoto}>
+                <View style={[styles.attachIconCircle, { backgroundColor: '#EFF6FF' }]}>
+                  <Camera size={22} color="#2563EB" />
+                </View>
+                <Text style={styles.attachOptionTitle}>Take Photo</Text>
+                <Text style={styles.attachOptionDesc}>Use Camera</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.attachOptionCard,
+                  pressed && styles.pressed,
+                ]}
+                onPress={handleChoosePhoto}>
+                <View style={[styles.attachIconCircle, { backgroundColor: '#F5F3FF' }]}>
+                  <ImageIcon size={22} color="#7C3AED" />
+                </View>
+                <Text style={styles.attachOptionTitle}>Photo Library</Text>
+                <Text style={styles.attachOptionDesc}>Select Image</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.attachOptionCard,
+                  pressed && styles.pressed,
+                ]}
+                onPress={handlePickDocument}>
+                <View style={[styles.attachIconCircle, { backgroundColor: '#ECFDF5' }]}>
+                  <FileUp size={22} color="#059669" />
+                </View>
+                <Text style={styles.attachOptionTitle}>Upload PDF</Text>
+                <Text style={styles.attachOptionDesc}>From Files</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
       {/* Settings Modal (Light Theme) */}
       <Modal
         visible={settingsOpen}
         animationType="slide"
         transparent
-        onRequestClose={() => setSettingsOpen(false)}>
-        <SafeAreaView style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        onRequestClose={() => {
+          Keyboard.dismiss();
+          setSettingsOpen(false);
+        }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}>
+          {/* Dimmed backdrop - tap to dismiss keyboard or close modal */}
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => {
+              Keyboard.dismiss();
+              if (!keyboardVisible) {
+                setSettingsOpen(false);
+              }
+            }}
+          />
+
+          <View
+            style={[
+              styles.modalContent,
+              keyboardVisible && styles.modalContentKeyboard,
+            ]}>
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleRow}>
                 <Settings size={18} color={C.text} />
                 <Text style={styles.modalTitle}>AI Personalization</Text>
               </View>
-              <Pressable onPress={() => setSettingsOpen(false)}>
-                <X size={20} color={C.muted} />
-              </Pressable>
+              <View style={styles.modalHeaderActions}>
+                {/* Small button to close/hide keyboard */}
+                <Pressable
+                  style={styles.dismissKeyboardBtn}
+                  onPress={() => Keyboard.dismiss()}
+                  hitSlop={8}
+                  accessibilityLabel="Close Keyboard">
+                  <ChevronDown size={14} color={C.accent} />
+                  <Text style={styles.dismissKeyboardText}>Close Keyboard</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.modalCloseBtn}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setSettingsOpen(false);
+                  }}
+                  hitSlop={8}
+                  accessibilityLabel="Close Modal">
+                  <X size={20} color={C.muted} />
+                </Pressable>
+              </View>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.settingLabel}>Custom Instructions & Persona</Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled">
+              <View style={styles.settingLabelRow}>
+                <Text style={styles.settingLabel}>Custom Instructions & Persona</Text>
+                <Pressable
+                  style={styles.dismissKeyboardChip}
+                  onPress={() => Keyboard.dismiss()}
+                  hitSlop={8}>
+                  <ChevronDown size={12} color={C.accent} />
+                  <Text style={styles.dismissKeyboardChipText}>Hide Keyboard</Text>
+                </Pressable>
+              </View>
               <Text style={styles.settingHint}>
                 Tell the AI how to answer (e.g. short responses, bullet points, tone):
               </Text>
@@ -520,6 +917,7 @@ function ChatScreen() {
                 <Pressable
                   style={[styles.modalBtn, styles.clearBtn]}
                   onPress={() => {
+                    Keyboard.dismiss();
                     setMessages([]);
                     setSettingsOpen(false);
                   }}>
@@ -535,7 +933,7 @@ function ChatScreen() {
               </View>
             </ScrollView>
           </View>
-        </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -702,9 +1100,17 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
+    flex: 1,
+    marginRight: 10,
   },
-  headerTitle: { color: C.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+  headerTitle: {
+    color: C.text,
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    flexShrink: 1,
+  },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -812,6 +1218,42 @@ const styles = StyleSheet.create({
   botText: { color: C.text, fontSize: 15, lineHeight: 22 },
   messageCol: { gap: 8 },
 
+  // Bubble Attachment Previews
+  bubbleAttachmentBox: { marginBottom: 8 },
+  bubbleImage: {
+    width: 220,
+    height: 160,
+    borderRadius: 14,
+    backgroundColor: C.border,
+  },
+  bubbleDocCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.surface2,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  bubbleDocCardUser: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  bubbleDocIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: C.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bubbleDocIconUser: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  bubbleDocName: { fontSize: 13, fontWeight: '700', color: C.text },
+  bubbleDocMeta: { fontSize: 11, color: C.textSecondary, marginTop: 2 },
+
   // Code Block in Dark Obsidian Theme with Copy
   codeCard: {
     backgroundColor: C.codeBg,
@@ -907,23 +1349,140 @@ const styles = StyleSheet.create({
   stopBtn: { backgroundColor: C.danger },
   sendText: { color: '#fff', fontSize: 17, fontWeight: '800' },
 
+  // Attachment Preview & Buttons
+  previewBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  previewThumb: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: C.border,
+  },
+  previewDocIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: C.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewInfo: { flex: 1 },
+  previewName: { fontSize: 13, fontWeight: '700', color: C.text },
+  previewSub: { fontSize: 11, color: C.muted, marginTop: 1 },
+  previewCloseBtn: {
+    padding: 6,
+    borderRadius: 12,
+    backgroundColor: C.surface2,
+  },
+  attachBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.surface2,
+  },
+
+  // Attachment Modal / Bottom Sheet
+  attachOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  attachSheet: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 22,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: -3 },
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  attachHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  attachTitle: { fontSize: 17, fontWeight: '800', color: C.text },
+  attachOptionsRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  attachOptionCard: {
+    flex: 1,
+    backgroundColor: C.surface2,
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  attachIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  attachOptionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.text,
+    textAlign: 'center',
+  },
+  attachOptionDesc: {
+    fontSize: 11,
+    color: C.muted,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+
   // Settings Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
+  modalBackdrop: {
+    flex: 1,
+  },
   modalContent: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 22,
+    paddingHorizontal: 22,
+    paddingTop: 18,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 22,
     maxHeight: '85%',
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: -4 },
     shadowRadius: 16,
     elevation: 10,
+  },
+  modalContentKeyboard: {
+    maxHeight: '62%',
+    paddingBottom: 16,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -932,7 +1491,7 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   modalTitleRow: {
     flexDirection: 'row',
@@ -940,7 +1499,51 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modalTitle: { color: C.text, fontSize: 18, fontWeight: '800' },
-  settingLabel: { color: C.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  modalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dismissKeyboardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accentSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  dismissKeyboardText: {
+    color: C.accent,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  settingLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  settingLabel: { color: C.text, fontSize: 15, fontWeight: '700' },
+  dismissKeyboardChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  dismissKeyboardChipText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   settingHint: { color: C.textSecondary, fontSize: 13, marginBottom: 12 },
   systemInput: {
     backgroundColor: C.surface2,
