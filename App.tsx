@@ -1,6 +1,6 @@
 /**
  * OfflineAI - On-device AI assistant using llama.rn (llama.cpp).
- * Option 2: Modern Apple Light Theme with Full-Screen Notch & Dark Code Blocks.
+ * Option 2: Modern Apple Light Theme with Lucide React Native Vector Icons.
  *
  * @format
  */
@@ -24,6 +24,22 @@ import {
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import { initLlama, LlamaContext } from 'llama.rn';
+import {
+  Brain,
+  Check,
+  Code2,
+  Copy,
+  FileText,
+  Lightbulb,
+  Mail,
+  Send,
+  Settings,
+  Sparkles,
+  Square,
+  Trash2,
+  X,
+  Zap,
+} from 'lucide-react-native';
 
 // ---- Model configuration --------------------------------------------------
 const MODEL_NAME = 'Qwen2.5 1.5B Instruct';
@@ -266,7 +282,7 @@ function ChatScreen() {
   if (phase !== 'ready') {
     return (
       <View style={styles.center}>
-        <Text style={styles.logo}>◆ OfflineAI</Text>
+        <Text style={styles.logo}>OfflineAI</Text>
         <Text style={styles.subtitle}>{MODEL_NAME} · On-Device</Text>
 
         {phase === 'checking' && <Status text="Checking model…" />}
@@ -326,7 +342,7 @@ function ChatScreen() {
             setTempPrompt(systemPrompt);
             setSettingsOpen(true);
           }}>
-          <Text style={styles.settingsIcon}>⚙️</Text>
+          <Settings size={18} color={C.text} />
         </Pressable>
       </View>
 
@@ -348,28 +364,28 @@ function ChatScreen() {
               <Pressable
                 style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
                 onPress={() => setInput('Explain this code:\n')}>
-                <Text style={styles.chipIcon}>&lt;/&gt;</Text>
+                <Code2 size={15} color={C.accent} />
                 <Text style={styles.chipText}>Explain Code</Text>
               </Pressable>
 
               <Pressable
                 style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
                 onPress={() => setInput('Summarize the key points of:\n')}>
-                <Text style={styles.chipIcon}>📝</Text>
+                <FileText size={15} color={C.accent} />
                 <Text style={styles.chipText}>Summarize</Text>
               </Pressable>
 
               <Pressable
                 style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
                 onPress={() => setInput('Draft a professional email about:\n')}>
-                <Text style={styles.chipIcon}>✉️</Text>
+                <Mail size={15} color={C.accent} />
                 <Text style={styles.chipText}>Write Email</Text>
               </Pressable>
 
               <Pressable
                 style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
                 onPress={() => setInput('Brainstorm creative ideas for:\n')}>
-                <Text style={styles.chipIcon}>💡</Text>
+                <Lightbulb size={15} color={C.accent} />
                 <Text style={styles.chipText}>Brainstorm</Text>
               </Pressable>
             </View>
@@ -384,7 +400,7 @@ function ChatScreen() {
             {item.role === 'assistant' && (
               <View style={styles.botHeader}>
                 <View style={styles.botBadge}>
-                  <Text style={styles.botBadgeText}>◆</Text>
+                  <Sparkles size={10} color={C.accent} />
                 </View>
                 <Text style={styles.botName}>OfflineAI</Text>
               </View>
@@ -416,7 +432,7 @@ function ChatScreen() {
                 pressed && styles.pressed,
               ]}
               onPress={stop}>
-              <Text style={styles.sendText}>■</Text>
+              <Square size={14} color="#FFFFFF" />
             </Pressable>
           ) : (
             <Pressable
@@ -427,7 +443,7 @@ function ChatScreen() {
               ]}
               onPress={send}
               disabled={!input.trim()}>
-              <Text style={styles.sendText}>➔</Text>
+              <Send size={15} color="#FFFFFF" style={{ marginLeft: 2 }} />
             </Pressable>
           )}
         </View>
@@ -442,9 +458,12 @@ function ChatScreen() {
         <SafeAreaView style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>⚙️ AI Personalization</Text>
+              <View style={styles.modalTitleRow}>
+                <Settings size={18} color={C.text} />
+                <Text style={styles.modalTitle}>AI Personalization</Text>
+              </View>
               <Pressable onPress={() => setSettingsOpen(false)}>
-                <Text style={styles.modalClose}>✕</Text>
+                <X size={20} color={C.muted} />
               </Pressable>
             </View>
 
@@ -472,7 +491,8 @@ function ChatScreen() {
                       'Always give very short, concise responses. Use brief bullet points. Avoid filler.',
                     )
                   }>
-                  <Text style={styles.presetChipText}>⚡ Short & Concise</Text>
+                  <Zap size={13} color={C.accent} />
+                  <Text style={styles.presetChipText}>Short & Concise</Text>
                 </Pressable>
                 <Pressable
                   style={styles.presetChip}
@@ -481,7 +501,8 @@ function ChatScreen() {
                       'You are an expert developer. Provide clean code snippets and brief, direct explanations.',
                     )
                   }>
-                  <Text style={styles.presetChipText}>💻 Code Expert</Text>
+                  <Code2 size={13} color={C.accent} />
+                  <Text style={styles.presetChipText}>Code Expert</Text>
                 </Pressable>
                 <Pressable
                   style={styles.presetChip}
@@ -490,7 +511,8 @@ function ChatScreen() {
                       'You are a helpful, concise assistant running fully offline on a phone. Answer clearly.',
                     )
                   }>
-                  <Text style={styles.presetChipText}>🧠 Default</Text>
+                  <Brain size={13} color={C.accent} />
+                  <Text style={styles.presetChipText}>Default</Text>
                 </Pressable>
               </View>
 
@@ -501,11 +523,13 @@ function ChatScreen() {
                     setMessages([]);
                     setSettingsOpen(false);
                   }}>
+                  <Trash2 size={15} color={C.danger} />
                   <Text style={styles.clearBtnText}>Clear Chat</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveSettings}>
+                  <Check size={16} color="#FFFFFF" />
                   <Text style={styles.saveBtnText}>Save</Text>
                 </Pressable>
               </View>
@@ -576,11 +600,24 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
   return (
     <View style={styles.codeCard}>
       <View style={styles.codeHeader}>
-        <Text style={styles.codeLang}>{lang.toUpperCase()}</Text>
+        <View style={styles.codeHeaderLeft}>
+          <Code2 size={13} color={C.codeLang} />
+          <Text style={styles.codeLang}>{lang.toUpperCase()}</Text>
+        </View>
         <Pressable
           style={({ pressed }) => [styles.copyBtn, pressed && styles.pressed]}
           onPress={copyCode}>
-          <Text style={styles.copyText}>{copied ? '✓ Copied' : 'Copy 📋'}</Text>
+          {copied ? (
+            <View style={styles.copyBtnRow}>
+              <Check size={12} color="#A6E3A1" />
+              <Text style={[styles.copyText, { color: '#A6E3A1' }]}>Copied</Text>
+            </View>
+          ) : (
+            <View style={styles.copyBtnRow}>
+              <Copy size={12} color="#FFFFFF" />
+              <Text style={styles.copyText}>Copy</Text>
+            </View>
+          )}
         </Pressable>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -689,7 +726,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  settingsIcon: { fontSize: 16 },
 
   // Chat message list
   list: {
@@ -726,7 +762,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 14,
   },
-  chipIcon: { fontSize: 14, color: C.accent, fontWeight: '700' },
   chipText: { color: C.text, fontSize: 13, fontWeight: '600' },
 
   // Message Bubbles
@@ -765,14 +800,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   botBadge: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: C.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  botBadgeText: { fontSize: 9, color: C.accent, fontWeight: '900' },
   botName: { fontSize: 12, fontWeight: '700', color: C.muted },
   userText: { color: '#FFFFFF', fontSize: 15, lineHeight: 22 },
   botText: { color: C.text, fontSize: 15, lineHeight: 22 },
@@ -794,9 +828,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: C.codeHeader,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: C.codeBorder,
+  },
+  codeHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   codeLang: {
     color: C.codeLang,
@@ -806,9 +845,14 @@ const styles = StyleSheet.create({
   },
   copyBtn: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
     backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  copyBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   copyText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
   codeContent: {
@@ -890,8 +934,12 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
     marginBottom: 16,
   },
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   modalTitle: { color: C.text, fontSize: 18, fontWeight: '800' },
-  modalClose: { color: C.muted, fontSize: 20, fontWeight: '600', padding: 4 },
   settingLabel: { color: C.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
   settingHint: { color: C.textSecondary, fontSize: 13, marginBottom: 12 },
   systemInput: {
@@ -909,6 +957,9 @@ const styles = StyleSheet.create({
   presetTitle: { color: C.text, fontSize: 14, fontWeight: '700', marginTop: 16, marginBottom: 8 },
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
   presetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: C.surface2,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -920,6 +971,8 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 10, paddingBottom: 10 },
   modalBtn: {
     flex: 1,
+    flexDirection: 'row',
+    gap: 6,
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: 'center',
