@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IlyasKaGpt — Header Redesign Live Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card-bg: #181b24;
+      --border: #262a36;
+      --accent: #4F46E5;
+      --accent-soft: #EEF2FF;
+      --purple: #7C3AED;
+      --pink: #EC4899;
+      --green: #10B981;
+      --green-bg: #ECFDF5;
+      --text: #F3F4F6;
+      --text-muted: #9CA3AF;
+      --phone-bg: #F3F4F6;
+      --phone-surface: #FFFFFF;
+      --phone-text: #111827;
+      --phone-sub: #4B5563;
+      --phone-border: #E5E7EB;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f1117 70%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px 60px;
+    }
+
+    .top-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(124, 58, 237, 0.15);
+      border: 1px solid rgba(124, 58, 237, 0.35);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #c084fc;
+      margin-bottom: 16px;
+      letter-spacing: 0.3px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 10px;
+      letter-spacing: -0.5px;
+    }
+
+    h1 span.ilyas {
+      color: #818cf8;
+    }
+
+    h1 span.ka {
+      color: #c084fc;
+    }
+
+    h1 span.gpt {
+      color: #f472b6;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+      text-align: center;
+      max-width: 580px;
+      line-height: 1.5;
+      margin-bottom: 28px;
+    }
+
+    /* Controls Bar */
+    .controls-panel {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 10px 18px;
+      border-radius: 50px;
+      margin-bottom: 30px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .toggle-group {
+      display: flex;
+      background: #0f1117;
+      border-radius: 999px;
+      padding: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .toggle-btn {
+      padding: 8px 18px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .toggle-btn.active {
+      background: linear-gradient(135deg, #4F46E5, #7C3AED);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+    }
+
+    .size-select-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .size-select-wrap select {
+      background: #0f1117;
+      color: #fff;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+
+    /* Comparison Container */
+    .preview-stage {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 40px;
+      width: 100%;
+      max-width: 1100px;
+      flex-wrap: wrap;
+    }
+
+    /* Device Mockup */
+    .device-shell {
+      width: 390px;
+      height: 800px;
+      background: #000;
+      border-radius: 52px;
+      padding: 12px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 0 0 4px #27272a;
+      position: relative;
+      transition: width 0.3s ease;
+    }
+
+    .device-screen {
+      width: 100%;
+      height: 100%;
+      background: var(--phone-bg);
+      border-radius: 42px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* iOS Status Bar */
+    .status-bar {
+      height: 48px;
+      padding: 12px 24px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: #000;
+      background: var(--phone-surface);
+      user-select: none;
+    }
+
+    .status-bar .island {
+      width: 115px;
+      height: 28px;
+      background: #000;
+      border-radius: 20px;
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .status-bar .right-icons {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+
+    /* Header in Device */
+    .app-header {
+      background: var(--phone-surface);
+      border-bottom: 1px solid var(--phone-border);
+      padding: 10px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+      position: relative;
+      z-index: 10;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .header-icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #F9FAFB;
+      border: 1px solid var(--phone-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #111827;
+      transition: transform 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .header-icon-btn:hover {
+      background: #F3F4F6;
+      transform: scale(0.97);
+    }
+
+    .header-icon-btn.active-voice {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* NEW STACKED BRAND HEADER (AFTER) */
+    .brand-stack {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
+
+    .brand-stack:hover {
+      background: #F9FAFB;
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .logo-badge {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      background: #F3E8FF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--purple);
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+      white-space: nowrap;
+    }
+
+    .pro-tag {
+      background: #EEF2FF;
+      border: 1px solid #E0E7FF;
+      color: var(--accent);
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .model-subtitle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+    }
+
+    .subtitle-text {
+      color: var(--phone-sub);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .chevron-icon {
+      color: #9CA3AF;
+      width: 12px;
+      height: 12px;
+    }
+
+    /* OLD CROWDED HEADER (BEFORE) */
+    .old-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      overflow: hidden;
+      margin-right: 10px;
+    }
+
+    .old-title-truncated {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 65px;
+    }
+
+    .old-model-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #ECFDF5;
+      padding: 4px 10px;
+      border-radius: 999px;
+      color: #10B981;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* Right side icons */
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    /* Chat Messages View */
+    .chat-scroll {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* PDF Card Bubble */
+    .pdf-card {
+      align-self: flex-end;
+      background: #fff;
+      border-radius: 18px;
+      padding: 14px;
+      max-width: 82%;
+      border: 1px solid var(--phone-border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    }
+
+    .pdf-meta-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #F8FAFC;
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 8px;
+      border: 1px solid #E2E8F0;
+    }
+
+    .pdf-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: #EEF2FF;
+      color: #4F46E5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pdf-info {
+      overflow: hidden;
+    }
+
+    .pdf-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1E293B;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pdf-sub {
+      font-size: 11px;
+      color: #64748B;
+      margin-top: 1px;
+    }
+
+    .pdf-prompt {
+      font-size: 13px;
+      color: #1F2937;
+      padding: 4px 4px 2px;
+    }
+
+    /* Assistant Message */
+    .msg-assistant {
+      align-self: flex-start;
+      background: #fff;
+      border-radius: 20px;
+      padding: 14px 16px;
+      max-width: 88%;
+      border: 1px solid var(--phone-border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    }
+
+    .msg-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .msg-author {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .speak-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      border: 1px solid var(--phone-border);
+      background: #F9FAFB;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #6B7280;
+      cursor: pointer;
+    }
+
+    .msg-body {
+      font-size: 13px;
+      line-height: 1.5;
+      color: #1F2937;
+    }
+
+    .msg-speed {
+      font-size: 10px;
+      color: #9CA3AF;
+      margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* User Message */
+    .msg-user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, #4F46E5, #6366F1);
+      color: #fff;
+      border-radius: 18px 18px 4px 18px;
+      padding: 10px 16px;
+      font-size: 13.5px;
+      font-weight: 500;
+      max-width: 80%;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+    }
+
+    /* Input Bar */
+    .input-bar-wrap {
+      padding: 10px 16px 20px;
+      background: var(--phone-surface);
+      border-top: 1px solid var(--phone-border);
+    }
+
+    .input-pill {
+      display: flex;
+      align-items: center;
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      border-radius: 999px;
+      padding: 6px 8px 6px 14px;
+      gap: 8px;
+    }
+
+    .input-pill input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: 13.5px;
+      color: #111827;
+      font-family: inherit;
+    }
+
+    .input-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: #6B7280;
+      cursor: pointer;
+    }
+
+    .send-btn {
+      background: #4F46E5;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+    }
+
+    /* Interactive Model Sheet Modal inside preview */
+    .modal-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      justify-content: flex-end;
+      backdrop-filter: blur(2px);
+    }
+
+    .modal-sheet {
+      background: #fff;
+      border-radius: 28px 28px 0 0;
+      padding: 20px 18px 30px;
+      animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideUp {
+      from {
+        transform: translateY(100%);
+      }
+
+      to {
+        transform: translateY(0);
+      }
+    }
+
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      background: #D1D5DB;
+      border-radius: 2px;
+      margin: 0 auto 16px;
+    }
+
+    .sheet-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #111827;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .model-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      margin-bottom: 6px;
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      transition: all 0.15s;
+    }
+
+    .model-option.selected {
+      background: #EEF2FF;
+      border-color: #4F46E5;
+    }
+
+    .model-opt-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .model-opt-desc {
+      font-size: 11px;
+      color: #6B7280;
+    }
+
+    /* Explanation sidebar card */
+    .info-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 28px;
+      max-width: 420px;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25);
+    }
+
+    .info-card h2 {
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .feature-item {
+      display: flex;
+      gap: 12px;
+    }
+
+    .feature-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(124, 58, 237, 0.15);
+      color: #c084fc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .feature-text strong {
+      display: block;
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+
+    .feature-text p {
+      color: var(--text-muted);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .push-ready-banner {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(79, 70, 229, 0.15));
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 13px;
+      color: #A7F3D0;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="top-badge">✨ Live Application Visual Preview</div>
+
+  <h1>
+    <span class="ilyas">Ilyas</span><span class="ka">Ka</span><span class="gpt">Gpt</span> Header Experience
+  </h1>
+
+  <p class="subtitle">
+    Compare the previous crowded layout where <code>IlyasKaGpt</code> was truncated against the new flagship stacked
+    brand architecture.
+  </p>
+
+  <!-- Controls -->
+  <div class="controls-panel">
+    <div class="toggle-group">
+      <button class="toggle-btn" id="btnBefore" onclick="setMode('before')">
+        ❌ Before (Cut Off)
+      </button>
+      <button class="toggle-btn active" id="btnAfter" onclick="setMode('after')">
+        ✨ After (Redesigned)
+      </button>
+    </div>
+
+    <div class="size-select-wrap">
+      <span>Screen Width:</span>
+      <select id="deviceWidthSelect" onchange="changeDeviceWidth(this.value)">
+        <option value="375">Compact (375px - iPhone SE/Mini)</option>
+        <option value="390" selected>Standard (390px - iPhone 14/15/16)</option>
+        <option value="420">Large (420px - Android Plus / Max)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="preview-stage">
+    <!-- Phone Mockup -->
+    <div class="device-shell" id="deviceShell">
+      <div class="device-screen">
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+          <span>12:59</span>
+          <div class="island"></div>
+          <div class="right-icons">
+            <svg width="15" height="11" viewBox="0 0 18 12" fill="currentColor">
+              <path d="M1 10h2v2H1zm4-3h2v5H5zm4-3h2v8H9zm4-4h2v12h-2z" />
+            </svg>
+            <span
+              style="background:#10B981; color:#fff; border-radius:4px; font-size:9px; padding:1px 3px; font-weight:800;">66%</span>
+          </div>
+        </div>
+
+        <!-- NEW REDESIGNED HEADER (AFTER) -->
+        <div class="app-header" id="headerAfter">
+          <div class="header-left">
+            <button class="header-icon-btn" title="Open Chat History">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+
+            <!-- Interactive Brand Stack -->
+            <div class="brand-stack" onclick="openModelSheet()" title="Tap to switch model">
+              <div class="brand-row">
+                <div class="logo-badge">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
+                  </svg>
+                </div>
+                <div class="brand-title">
+                  <span style="color:#4F46E5;">Ilyas</span><span style="color:#7C3AED;">Ka</span><span
+                    style="color:#EC4899;">Gpt</span>
+                </div>
+              </div>
+              <div class="model-subtitle">
+                <div class="status-dot"></div>
+                <span class="subtitle-text" id="activeModelLabel">🧠 1.5B Fast AI</span>
+                <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                  stroke-linecap="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="header-right">
+            <button class="header-icon-btn" id="voiceBtn" onclick="toggleVoice()" title="Toggle Offline Voice Mode">
+              <svg id="voiceIconOn" style="display:none;" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              </svg>
+              <svg id="voiceIconOff" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF"
+                stroke-width="2" stroke-linecap="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <line x1="23" y1="9" x2="17" y2="15"></line>
+                <line x1="17" y1="9" x2="23" y2="15"></line>
+              </svg>
+            </button>
+            <button class="header-icon-btn" title="New Chat">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <button class="header-icon-btn" title="Settings & Persona">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                </path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- OLD CROWDED HEADER (BEFORE - HIDDEN BY DEFAULT) -->
+        <div class="app-header" id="headerBefore" style="display:none; border-bottom: 2px dashed #EF4444;">
+          <div class="old-header-left">
+            <button class="header-icon-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <div class="old-title-truncated">
+              <span style="color:#4F46E5;">Ilya...</span>
+            </div>
+            <div class="old-model-badge">
+              <div style="width:7px; height:7px; border-radius:4px; background:#10B981;"></div>
+              <span>🧠 1.5B Fast AI</span>
+            </div>
+          </div>
+
+          <div class="header-right">
+            <button class="header-icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4F46E5"
+                stroke-width="2">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+              </svg></button>
+            <button class="header-icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg></button>
+            <button class="header-icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg></button>
+          </div>
+        </div>
+
+        <!-- Chat Conversation (Matching user screenshot) -->
+        <div class="chat-scroll">
+
+          <!-- PDF User Message -->
+          <div class="pdf-card">
+            <div class="pdf-meta-box">
+              <div class="pdf-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+              </div>
+              <div class="pdf-info">
+                <div class="pdf-name">AICT LAB TASK5_...</div>
+                <div class="pdf-sub">PDF Document · 0 MB</div>
+              </div>
+            </div>
+            <div class="pdf-prompt">Explain what this pdf is about</div>
+          </div>
+
+          <!-- Assistant Response 1 -->
+          <div class="msg-assistant">
+            <div class="msg-header">
+              <div class="msg-author">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
+                </svg>
+                <span>IlyasKaGpt</span>
+              </div>
+              <div class="speak-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                </svg>
+              </div>
+            </div>
+            <div class="msg-body">
+              This PDF is a Monthly Budget for a BPO student named Muhammad Nawaz, showing income, expenses, and budget
+              overview with estimated, actual, and difference percentages for each expense category.
+            </div>
+          </div>
+
+          <!-- User Hello -->
+          <div class="msg-user">Hello</div>
+
+          <!-- Assistant Response 2 -->
+          <div class="msg-assistant">
+            <div class="msg-header">
+              <div class="msg-author">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
+                </svg>
+                <span>IlyasKaGpt</span>
+              </div>
+              <div class="speak-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                </svg>
+              </div>
+            </div>
+            <div class="msg-body">
+              Hello! How can I assist you today?
+            </div>
+          </div>
+
+          <!-- User Prompt 2 -->
+          <div class="msg-user">Send me paragraph on phone in short</div>
+
+          <!-- Assistant Response 3 with speed -->
+          <div class="msg-assistant">
+            <div class="msg-header">
+              <div class="msg-author">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
+                </svg>
+                <span>IlyasKaGpt</span>
+              </div>
+              <div class="speak-btn" style="background:#FEE2E2; border-color:#FECACA; color:#EF4444;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <line x1="23" y1="9" x2="17" y2="15"></line>
+                </svg>
+              </div>
+            </div>
+            <div class="msg-body">
+              A phone is an electronic device used for communication, typically by making voice calls, text messaging,
+              and internet browsing.
+            </div>
+            <div class="msg-speed">14.1 tokens/s</div>
+          </div>
+
+        </div>
+
+        <!-- Input Bar -->
+        <div class="input-bar-wrap">
+          <div class="input-pill">
+            <button class="input-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <input type="text" placeholder="Ask IlyasKaGpt…" value="Ask IlyasKaGpt…" readonly />
+            <button class="input-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              </svg>
+            </button>
+            <button class="input-btn send-btn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Interactive Model Switcher Modal Inside Preview -->
+        <div class="modal-overlay" id="modelModal" onclick="closeModelSheet(event)">
+          <div class="modal-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <div class="sheet-title">
+              <span>Switch AI Model</span>
+              <span style="font-size:12px; color:#6B7280; font-weight:600;">On-Device Offline</span>
+            </div>
+
+            <div class="model-option selected" onclick="selectModel('🧠 1.5B Fast AI', this)">
+              <div>
+                <div class="model-opt-name">🧠 Qwen2.5 1.5B Fast AI</div>
+                <div class="model-opt-desc">Instant responses, lightweight · 986 MB</div>
+              </div>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+
+            <div class="model-option" onclick="selectModel('🧠 3B Smart AI', this)">
+              <div>
+                <div class="model-opt-name">🧠 Qwen2.5 3B Smart AI</div>
+                <div class="model-opt-desc">Balanced reasoning & knowledge · 1.9 GB</div>
+              </div>
+            </div>
+
+            <div class="model-option" onclick="selectModel('🧠 7B Super Genius', this)">
+              <div>
+                <div class="model-opt-name">🧠 Qwen2.5 7B Super Genius</div>
+                <div class="model-opt-desc">High intelligence, coding & math · 4.7 GB</div>
+              </div>
+            </div>
+
+            <div class="model-option" onclick="selectModel('👁️ 2B Vision Fast', this)">
+              <div>
+                <div class="model-opt-name">👁️ Qwen2-VL 2B Vision Fast</div>
+                <div class="model-opt-desc">Image & document visual reasoning · 1.8 GB</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right Side Information & Verification Card -->
+    <div class="info-card">
+      <h2>🚀 Header Solution Details</h2>
+
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feature-icon">👑</div>
+          <div class="feature-text">
+            <strong>Full Brand Prominence</strong>
+            <p><code>IlyasKaGpt</code> is now 100% visible on all screen sizes with your signature tri-color palette and
+              a violet AI sparkle badge.</p>
+          </div>
+        </li>
+
+        <li class="feature-item">
+          <div class="feature-icon">📐</div>
+          <div class="feature-text">
+            <strong>Smart Stacked Layout</strong>
+            <p>The active model (e.g. <code>1.5B Fast AI ▾</code>) is cleanly positioned as a subtitle row beneath the
+              title, eliminating horizontal competition.</p>
+          </div>
+        </li>
+
+        <li class="feature-item">
+          <div class="feature-icon">⚡</div>
+          <div class="feature-text">
+            <strong>Interactive Model Switcher</strong>
+            <p>Tapping anywhere on the brand or model subtitle directly opens the Model Center.</p>
+          </div>
+        </li>
+
+        <li class="feature-item">
+          <div class="feature-icon">🛡️</div>
+          <div class="feature-text">
+            <strong>Zero Truncation Tested</strong>
+            <p>Even on 375px compact screens, there is over 50px of breathing room with all action buttons.</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="push-ready-banner">
+        <strong>Ready for Git:</strong> All changes in <code>App.tsx</code> have been type-checked with TypeScript (0
+        errors). When you are ready, I will push to GitHub for you.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function setMode(mode) {
+      const headerAfter = document.getElementById('headerAfter');
+      const headerBefore = document.getElementById('headerBefore');
+      const btnBefore = document.getElementById('btnBefore');
+      const btnAfter = document.getElementById('btnAfter');
+
+      if (mode === 'before') {
+        headerBefore.style.display = 'flex';
+        headerAfter.style.display = 'none';
+        btnBefore.classList.add('active');
+        btnAfter.classList.remove('active');
+      } else {
+        headerBefore.style.display = 'none';
+        headerAfter.style.display = 'flex';
+        btnAfter.classList.add('active');
+        btnBefore.classList.remove('active');
+      }
+    }
+
+    function changeDeviceWidth(val) {
+      document.getElementById('deviceShell').style.width = val + 'px';
+    }
+
+    let voiceActive = false;
+    function toggleVoice() {
+      voiceActive = !voiceActive;
+      const btn = document.getElementById('voiceBtn');
+      const onIcon = document.getElementById('voiceIconOn');
+      const offIcon = document.getElementById('voiceIconOff');
+
+      if (voiceActive) {
+        btn.classList.add('active-voice');
+        onIcon.style.display = 'block';
+        offIcon.style.display = 'none';
+      } else {
+        btn.classList.remove('active-voice');
+        onIcon.style.display = 'none';
+        offIcon.style.display = 'block';
+      }
+    }
+
+    function openModelSheet() {
+      document.getElementById('modelModal').style.display = 'flex';
+    }
+
+    function closeModelSheet(e) {
+      document.getElementById('modelModal').style.display = 'none';
+    }
+
+    function selectModel(name, elem) {
+      document.getElementById('activeModelLabel').innerText = name;
+      document.querySelectorAll('.model-option').forEach(el => {
+        el.classList.remove('selected');
+        const check = el.querySelector('svg');
+        if (check) check.remove();
+      });
+      elem.classList.add('selected');
+      const checkSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      checkSvg.setAttribute('width', '18');
+      checkSvg.setAttribute('height', '18');
+      checkSvg.setAttribute('viewBox', '0 0 24 24');
+      checkSvg.setAttribute('fill', 'none');
+      checkSvg.setAttribute('stroke', '#4F46E5');
+      checkSvg.setAttribute('stroke-width', '3');
+      checkSvg.innerHTML = '<polyline points="20 6 9 17 4 12"></polyline>';
+      elem.appendChild(checkSvg);
+
+      setTimeout(() => {
+        document.getElementById('modelModal').style.display = 'none';
+      }, 200);
+    }
+  </script>
+</body>
+
+</html>

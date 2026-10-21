@@ -2033,45 +2033,58 @@ function ChatScreen() {
               pressed && styles.pressed,
             ]}
             onPress={() => setDrawerOpen(true)}
+            hitSlop={6}
             accessibilityLabel="Open Chat History">
             <Menu size={18} color={C.text} />
           </Pressable>
 
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            <Text style={{ color: C.accent }}>Ilyas</Text>
-            <Text style={{ color: '#7C3AED' }}>Ka</Text>
-            <Text style={{ color: '#EC4899' }}>Gpt</Text>
-          </Text>
-
           <Pressable
-            style={({ pressed }) => [styles.badge, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.headerBrandStack,
+              pressed && { opacity: 0.75 },
+            ]}
             onPress={() => {
               setSettingsTab('models');
               setSettingsOpen(true);
             }}
+            hitSlop={4}
             accessibilityLabel="Switch AI Model">
-            <View
-              style={[
-                styles.dot,
-                activeModel.category === 'vision' && { backgroundColor: '#7C3AED' },
-              ]}
-            />
-            <Text style={styles.badgeText}>
-              {activeModel.category === 'vision' ? '👁️ ' : '🧠 '}
-              {activeModel.id === 'qwen2.5-14b'
-                ? '14B Ultra Genius'
-                : activeModel.id === 'qwen2.5-7b'
-                ? '7B Super Genius'
-                : activeModel.id === 'qwen2.5-3b'
-                ? '3B Smart AI'
-                : activeModel.id === 'qwen2.5-1.5b'
-                ? '1.5B Fast AI'
-                : activeModel.id === 'qwen2-vl-7b'
-                ? '7B Vision Master'
-                : activeModel.id === 'qwen2-vl-2b'
-                ? '2B Vision Fast'
-                : activeModel.name}
-            </Text>
+            <View style={styles.headerBrandRow}>
+              <View style={styles.headerLogoBadge}>
+                <Sparkles size={12} color="#7C3AED" />
+              </View>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                <Text style={{ color: C.accent }}>Ilyas</Text>
+                <Text style={{ color: '#7C3AED' }}>Ka</Text>
+                <Text style={{ color: '#EC4899' }}>Gpt</Text>
+              </Text>
+            </View>
+
+            <View style={styles.headerSubtitleRow}>
+              <View
+                style={[
+                  styles.statusDot,
+                  activeModel.category === 'vision' && { backgroundColor: '#7C3AED' },
+                ]}
+              />
+              <Text style={styles.headerSubtitleText} numberOfLines={1}>
+                {activeModel.category === 'vision' ? '👁️ ' : '🧠 '}
+                {activeModel.id === 'qwen2.5-14b'
+                  ? '14B Ultra Genius'
+                  : activeModel.id === 'qwen2.5-7b'
+                  ? '7B Super Genius'
+                  : activeModel.id === 'qwen2.5-3b'
+                  ? '3B Smart AI'
+                  : activeModel.id === 'qwen2.5-1.5b'
+                  ? '1.5B Fast AI'
+                  : activeModel.id === 'qwen2-vl-7b'
+                  ? '7B Vision Master'
+                  : activeModel.id === 'qwen2-vl-2b'
+                  ? '2B Vision Fast'
+                  : activeModel.name}
+              </Text>
+              <ChevronDown size={11} color={C.muted} />
+            </View>
           </Pressable>
         </View>
 
@@ -2084,6 +2097,7 @@ function ChatScreen() {
               pressed && styles.pressed,
             ]}
             onPress={toggleVoiceResponseMode}
+            hitSlop={4}
             accessibilityLabel={
               voiceResponseEnabled
                 ? 'Voice Response Mode ON (Tap to mute)'
@@ -2102,6 +2116,7 @@ function ChatScreen() {
               pressed && styles.pressed,
             ]}
             onPress={startNewChat}
+            hitSlop={4}
             accessibilityLabel="New Chat">
             <Plus size={18} color={C.text} />
           </Pressable>
@@ -2116,6 +2131,7 @@ function ChatScreen() {
               setSettingsTab('persona');
               setSettingsOpen(true);
             }}
+            hitSlop={4}
             accessibilityLabel="Settings">
             <Settings size={17} color={C.text} />
           </Pressable>
@@ -3346,9 +3362,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: Platform.OS === 'ios' ? 52 : 16,
-    paddingBottom: 14,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
     backgroundColor: C.surface,
@@ -3356,32 +3372,56 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     flex: 1,
-    marginRight: 10,
+    marginRight: 6,
   },
-  headerTitle: {
-    color: C.text,
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: -0.3,
+  headerBrandStack: {
+    flexDirection: 'column',
+    justifyContent: 'center',
     flexShrink: 1,
   },
-  badge: {
+  headerBrandRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: C.accentGreenBg,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
   },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accentGreen },
-    badgeText: { color: C.accentGreen, fontSize: 12, fontWeight: '700' },
+  headerLogoBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  headerSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  headerSubtitleText: {
+    color: C.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+    maxWidth: 140,
+  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
   headerIconBtn: {
     width: 36,
