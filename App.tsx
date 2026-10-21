@@ -14,6 +14,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeEventEmitter,
   NativeModules,
   PermissionsAndroid,
   Platform,
@@ -23,6 +24,7 @@ import {
   Share,
   StatusBar,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableWithoutFeedback,
@@ -56,6 +58,8 @@ import {
   Sparkles,
   Square,
   Trash2,
+  Volume2,
+  VolumeX,
   X,
   Zap,
 } from 'lucide-react-native';
@@ -68,52 +72,91 @@ import {
 } from '@react-native-documents/picker';
 
 // ---- Model configuration --------------------------------------------------
+export type ModelCategory = 'text' | 'vision';
+
 export type ModelOption = {
   id: string;
+  category: ModelCategory;
   name: string;
   file: string;
   url: string;
   size: number;
   description: string;
   tag: string;
+  mmprojFile?: string;
+  mmprojUrl?: string;
+  mmprojSize?: number;
 };
 
 export const AVAILABLE_MODELS: ModelOption[] = [
+  // --- Text Reasoning Brains ---
   {
     id: 'qwen2.5-14b',
+    category: 'text',
     name: 'Qwen2.5 14B Ultra Genius',
     file: 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
     url: 'https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf',
     size: 8988110976,
     description: 'Ultra-intelligent 14B brain (Rivals GPT-4o-mini). Exceptional multi-step reasoning, advanced coding & all languages.',
-    tag: 'Ultra Genius · 9.0 GB',
+    tag: 'Text Ultra · 9.0 GB',
   },
   {
     id: 'qwen2.5-7b',
+    category: 'text',
     name: 'Qwen2.5 7B Super Genius',
     file: 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',
     url: 'https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf',
     size: 4683074240,
     description: 'High-intelligence 7B model. Outstanding logic, programming, mathematics & multilingual fluency.',
-    tag: 'Super Genius · 4.7 GB',
+    tag: 'Text Genius · 4.7 GB',
   },
   {
     id: 'qwen2.5-3b',
+    category: 'text',
     name: 'Qwen2.5 3B Smart',
     file: 'qwen2.5-3b-instruct-q4_k_m.gguf',
     url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
     size: 2104932768,
     description: 'Genius Multilingual AI (Urdu, English, Hindi, Arabic, 29+ languages, Fast & Smart).',
-    tag: 'Smart · 2.1 GB',
+    tag: 'Text Smart · 2.1 GB',
   },
   {
     id: 'qwen2.5-1.5b',
+    category: 'text',
     name: 'Qwen2.5 1.5B Fast',
     file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
     url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
     size: 1117320736,
     description: 'Fast & Lightweight on-device assistant. Instant responses, minimal battery & RAM usage.',
-    tag: 'Fast · 1.1 GB',
+    tag: 'Text Fast · 1.1 GB',
+  },
+
+  // --- Vision & Multimodal Brains ---
+  {
+    id: 'qwen2-vl-7b',
+    category: 'vision',
+    name: 'Qwen2-VL 7B Vision Master',
+    file: 'Qwen2-VL-7B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2-VL-7B-Instruct-GGUF/resolve/main/Qwen2-VL-7B-Instruct-Q4_K_M.gguf',
+    size: 4683072672,
+    mmprojFile: 'mmproj-Qwen2-VL-7B-Instruct-f16.gguf',
+    mmprojUrl: 'https://huggingface.co/bartowski/Qwen2-VL-7B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-7B-Instruct-f16.gguf',
+    mmprojSize: 1352635904,
+    description: 'Top-tier offline Vision AI. Directly sees WhatsApp screens, UI layouts, diagrams & real photos with high visual precision.',
+    tag: 'Vision Master · 6.0 GB',
+  },
+  {
+    id: 'qwen2-vl-2b',
+    category: 'vision',
+    name: 'Qwen2-VL 2B Vision Fast',
+    file: 'Qwen2-VL-2B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/Qwen2-VL-2B-Instruct-Q4_K_M.gguf',
+    size: 986047232,
+    mmprojFile: 'mmproj-Qwen2-VL-2B-Instruct-f16.gguf',
+    mmprojUrl: 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-2B-Instruct-f16.gguf',
+    mmprojSize: 1331656192,
+    description: 'High-speed offline Vision AI. Light RAM footprint, instant pixel visual analysis for screenshots & camera photos.',
+    tag: 'Vision Fast · 2.3 GB',
   },
 ];
 
@@ -121,10 +164,9 @@ const SETTINGS_PATH = `${RNFS.DocumentDirectoryPath}/settings.json`;
 const SESSIONS_PATH = `${RNFS.DocumentDirectoryPath}/chat_sessions.json`;
 
 const SYSTEM_PROMPT =
-  'You are a helpful, concise assistant running on a phone. ' +
-  'Answer clearly in any language requested (English, Urdu, Hindi, Arabic, etc.). Use short code examples when useful. ' +
-  'When an attached image contains extracted OCR text, accurately analyze and answer questions based on that text. ' +
-  'Never hallucinate certificates, random names, or signatures not in the image.';
+  'You are a helpful, concise AI assistant running on-device. ' +
+  'Answer clearly and accurately in any language requested (English, Urdu, Hindi, Arabic, etc.). ' +
+  'When an image or screenshot is attached, accurately inspect all visual details, identify the application interface (e.g. WhatsApp, Telegram, Android/iOS System, or Camera Photo), read all visible text, and answer questions directly without guessing or hallucinating.';
 const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '</s>', '<|eot_id|>'];
 const MAX_HISTORY = 8;
 const OCR_API_KEYS = ['helloworld', 'K88796853688957'];
@@ -154,6 +196,28 @@ export type ChatSession = {
   updatedAt: number;
   messages: Message[];
 };
+
+// Helper to guarantee images are readable local files for llama.rn native C++ engine
+async function ensureLocalFilePath(uri: string): Promise<string> {
+  if (!uri) return '';
+  if (Platform.OS === 'android' && uri.startsWith('content://')) {
+    try {
+      const dest = `${RNFS.CachesDirectoryPath}/vision_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`;
+      await RNFS.copyFile(uri, dest);
+      return `file://${dest}`;
+    } catch {
+      try {
+        const dest = `${RNFS.CachesDirectoryPath}/vision_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`;
+        const b64 = await RNFS.readFile(uri, 'base64');
+        await RNFS.writeFile(dest, b64, 'base64');
+        return `file://${dest}`;
+      } catch (err) {
+        console.warn('Could not cache content URI:', err);
+      }
+    }
+  }
+  return uri;
+}
 
 // ---- Hybrid Offline/Online OCR Engine -------------------------------------
 async function extractTextFromImage(uri: string): Promise<string> {
@@ -317,6 +381,51 @@ function formatMB(bytes: number) {
   return formatSize(bytes);
 }
 
+// Clean markdown syntax for natural-sounding offline voice reading
+function cleanMarkdownForSpeech(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/```[\s\S]*?```/g, ' Code snippet omitted. ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    .replace(/https?:\/\/\S+/gi, ' link ')
+    .replace(/[|•▪▫★☆]/g, ' ')
+    .replace(/^\s*>\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Clean and format user speech for maximum LLM comprehension and accuracy
+function cleanSpokenPrompt(rawText: string): string {
+  if (!rawText) return '';
+  let text = rawText.trim();
+
+  // Strip common hesitation sounds
+  text = text.replace(/^(uh+|um+|ah+|er+|like)\s+/i, '');
+  text = text.replace(/\s+(uh+|um+|ah+|er+)\s+/gi, ' ');
+
+  // Capitalize first letter
+  if (text.length > 0) {
+    text = text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  // Ensure question mark if question word starts the prompt
+  const isQuestion = /^(what|how|why|when|where|who|which|whose|can|could|would|will|is|are|do|does|did|should)/i.test(
+    text,
+  );
+  if (isQuestion && !/[?!.]$/.test(text)) {
+    text += '?';
+  }
+
+  return text;
+}
+
 function App() {
   return (
     <View style={styles.root}>
@@ -333,6 +442,10 @@ function ChatScreen() {
   const [downloaded, setDownloaded] = useState(0);
   const [downloadSpeed, setDownloadSpeed] = useState<string>('');
   const [downloadEta, setDownloadEta] = useState<string>('');
+  const [downloadTitle, setDownloadTitle] = useState<string>('');
+  const [modelCategoryFilter, setModelCategoryFilter] = useState<ModelCategory>('text');
+  const isMultimodalReadyRef = useRef(false);
+  const [isMultimodalReady, setIsMultimodalReady] = useState(false);
   const speedCalcRef = useRef<{ lastBytes: number; lastTime: number }>({ lastBytes: 0, lastTime: 0 });
   const isDownloadingRef = useRef(false);
   const activeDownloadModelIdRef = useRef<string | null>(null);
@@ -362,10 +475,25 @@ function ChatScreen() {
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Voice recording state
+  // Voice recording & Offline Speech state
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<any>(null);
+  const [voiceResponseEnabled, setVoiceResponseEnabled] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const isSpeakingRef = useRef(false);
+  isSpeakingRef.current = isSpeaking;
+  const isRecordingRef = useRef(isRecording);
+  isRecordingRef.current = isRecording;
+  const voiceResponseEnabledRef = useRef(voiceResponseEnabled);
+  voiceResponseEnabledRef.current = voiceResponseEnabled;
+  const silenceTimerRef = useRef<any>(null);
+
+  // User scroll position control (prevents forced auto-scroll if user scrolled up)
+  const isUserAtBottomRef = useRef(true);
+  const isUserTouchingScrollRef = useRef(false);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
   const ctxRef = useRef<LlamaContext | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
@@ -373,17 +501,27 @@ function ChatScreen() {
   const activeModel =
     AVAILABLE_MODELS.find(m => m.id === selectedModelId) || AVAILABLE_MODELS[0];
 
-  // Refresh which models are stored locally on the phone
+  // Refresh which models are stored locally on the phone (verifies main file and mmproj if vision)
   const refreshDownloadedStatus = useCallback(async () => {
     const status: Record<string, boolean> = {};
     for (const m of AVAILABLE_MODELS) {
       try {
         const path = `${RNFS.DocumentDirectoryPath}/${m.file}`;
+        let modelOk = false;
         if (await RNFS.exists(path)) {
           const stat = await RNFS.stat(path);
-          status[m.id] = Number(stat.size) === m.size;
+          modelOk = Math.abs(Number(stat.size) - m.size) <= 4096;
+        }
+        if (m.category === 'vision' && m.mmprojFile && m.mmprojSize) {
+          const mmPath = `${RNFS.DocumentDirectoryPath}/${m.mmprojFile}`;
+          let mmOk = false;
+          if (await RNFS.exists(mmPath)) {
+            const stat = await RNFS.stat(mmPath);
+            mmOk = Math.abs(Number(stat.size) - m.mmprojSize) <= 4096;
+          }
+          status[m.id] = modelOk && mmOk;
         } else {
-          status[m.id] = false;
+          status[m.id] = modelOk;
         }
       } catch {
         status[m.id] = false;
@@ -401,6 +539,12 @@ function ChatScreen() {
           const tempPath = `${RNFS.DocumentDirectoryPath}/${m.file}.part`;
           if (await RNFS.exists(tempPath)) {
             await RNFS.unlink(tempPath);
+          }
+          if (m.mmprojFile) {
+            const tempMmPath = `${RNFS.DocumentDirectoryPath}/${m.mmprojFile}.part`;
+            if (await RNFS.exists(tempMmPath)) {
+              await RNFS.unlink(tempMmPath);
+            }
           }
         }
       } catch {}
@@ -632,16 +776,23 @@ function ChatScreen() {
       } catch {}
     }
     const model = activeModel;
-    const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
     try {
+      const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
       if (await RNFS.exists(tempPath)) {
         await RNFS.unlink(tempPath);
+      }
+      if (model.mmprojFile) {
+        const tempMm = `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}.part`;
+        if (await RNFS.exists(tempMm)) {
+          await RNFS.unlink(tempMm);
+        }
       }
     } catch {}
     setProgress(0);
     setDownloaded(0);
     setDownloadSpeed('');
     setDownloadEta('');
+    setDownloadTitle('');
     setPhase('error');
     setError('Download was canceled.');
   }, [activeModel]);
@@ -654,6 +805,10 @@ function ChatScreen() {
       AVAILABLE_MODELS.find(m => m.id === modelId) || AVAILABLE_MODELS[0];
     const modelPath = `${RNFS.DocumentDirectoryPath}/${model.file}`;
     const tempPath = `${modelPath}.part`;
+
+    const isVision = model.category === 'vision' && !!model.mmprojFile && !!model.mmprojUrl;
+    const mmprojPath = isVision ? `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}` : '';
+    const tempMmprojPath = isVision ? `${mmprojPath}.part` : '';
 
     // If this exact model is ALREADY downloading, do NOT restart or unlink!
     if (isDownloadingRef.current && activeDownloadModelIdRef.current === model.id) {
@@ -677,28 +832,30 @@ function ChatScreen() {
       setError('');
       setPhase('checking');
 
-      let ready = false;
+      let modelReady = false;
       if (await RNFS.exists(modelPath)) {
         const stat = await RNFS.stat(modelPath);
-        ready = Math.abs(Number(stat.size) - model.size) <= 4096;
-        if (!ready) {
+        modelReady = Math.abs(Number(stat.size) - model.size) <= 4096;
+        if (!modelReady) {
           await RNFS.unlink(modelPath);
         }
       }
+
+      let mmprojReady = !isVision;
+      if (isVision && (await RNFS.exists(mmprojPath))) {
+        const stat = await RNFS.stat(mmprojPath);
+        mmprojReady = Math.abs(Number(stat.size) - (model.mmprojSize || 0)) <= 4096;
+        if (!mmprojReady) {
+          await RNFS.unlink(mmprojPath);
+        }
+      }
+
+      const ready = modelReady && mmprojReady;
 
       if (!ready) {
         setPhase('downloading');
         isDownloadingRef.current = true;
         activeDownloadModelIdRef.current = model.id;
-        setProgress(0);
-        setDownloaded(0);
-        setDownloadSpeed('');
-        setDownloadEta('');
-        speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
-
-        if (await RNFS.exists(tempPath)) {
-          await RNFS.unlink(tempPath);
-        }
 
         // On Android 13+, request notification permission
         if (Platform.OS === 'android' && Platform.Version >= 33) {
@@ -709,107 +866,134 @@ function ChatScreen() {
           } catch {}
         }
 
-        // Start Foreground Service with WakeLock to allow downloading while screen is OFF
-        if (Platform.OS === 'android' && DownloadNotificationModule?.startForegroundService) {
-          try {
-            await DownloadNotificationModule.startForegroundService(
-              `Downloading ${model.name}`,
-              '',
-              'Starting download...',
-              '0 MB',
-              formatSize(model.size),
-              formatSize(model.size),
-              0,
-            );
-          } catch (err) {
-            console.warn('Could not start download foreground service:', err);
+        const downloadSingleFile = async (
+          fromUrl: string,
+          toTemp: string,
+          toDest: string,
+          expectedSize: number,
+          label: string,
+        ) => {
+          setDownloadTitle(label);
+          setProgress(0);
+          setDownloaded(0);
+          setDownloadSpeed('');
+          setDownloadEta('');
+          speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
+
+          if (await RNFS.exists(toTemp)) {
+            await RNFS.unlink(toTemp);
           }
+
+          if (Platform.OS === 'android' && DownloadNotificationModule?.startForegroundService) {
+            try {
+              await DownloadNotificationModule.startForegroundService(
+                label,
+                '',
+                'Starting download...',
+                '0 MB',
+                formatSize(expectedSize),
+                formatSize(expectedSize),
+                0,
+              );
+            } catch (err) {
+              console.warn('Could not start download foreground service:', err);
+            }
+          }
+
+          let lastNotifyTime = 0;
+          let currentSpeedStr = '';
+          let currentEtaStr = '';
+
+          const job = RNFS.downloadFile({
+            fromUrl,
+            toFile: toTemp,
+            background: true,
+            discretionary: false,
+            progressInterval: 250,
+            begin: () => {
+              speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
+            },
+            progress: res => {
+              const total =
+                res.contentLength && res.contentLength > 100000000
+                  ? res.contentLength
+                  : expectedSize;
+              const written = res.bytesWritten;
+              setDownloaded(written);
+              setProgress(Math.min(1, Math.max(0, written / total)));
+
+              const now = Date.now();
+              const timeDelta = (now - speedCalcRef.current.lastTime) / 1000;
+              if (timeDelta >= 1) {
+                const bytesDelta = written - speedCalcRef.current.lastBytes;
+                if (bytesDelta > 0) {
+                  const spd = bytesDelta / timeDelta;
+                  currentSpeedStr = `${(spd / (1024 * 1024)).toFixed(1)} MB/s`;
+                  setDownloadSpeed(currentSpeedStr);
+                  const remaining = Math.max(0, total - written);
+                  const secs = Math.round(remaining / spd);
+                  currentEtaStr = secs > 60 ? `~${Math.ceil(secs / 60)} min left` : `~${secs}s left`;
+                  setDownloadEta(currentEtaStr);
+                }
+                speedCalcRef.current = { lastBytes: written, lastTime: now };
+              }
+
+              if (now - lastNotifyTime >= 1000) {
+                lastNotifyTime = now;
+                const percent = Math.min(100, Math.max(0, Math.round((written / total) * 100)));
+                const leftBytes = Math.max(0, total - written);
+
+                if (Platform.OS === 'android' && DownloadNotificationModule?.updateProgress) {
+                  DownloadNotificationModule.updateProgress(
+                    label,
+                    currentSpeedStr,
+                    currentEtaStr,
+                    formatDetailedSize(written),
+                    formatSize(total),
+                    formatDetailedSize(leftBytes),
+                    percent,
+                  );
+                }
+              }
+            },
+          });
+
+          downloadJobIdRef.current = job.jobId;
+          const result = await job.promise;
+          downloadJobIdRef.current = null;
+
+          if (result.statusCode !== 200) {
+            throw new Error(`Download failed (HTTP ${result.statusCode})`);
+          }
+          const stat = await RNFS.stat(toTemp);
+          if (Math.abs(Number(stat.size) - expectedSize) > 4096) {
+            throw new Error('Download incomplete. Check internet connection and retry.');
+          }
+          await RNFS.moveFile(toTemp, toDest);
+        };
+
+        // Step 1: Download main model weights if not ready
+        if (!modelReady) {
+          const label = isVision ? `Downloading ${model.name} (Brain 1/2)` : `Downloading ${model.name}`;
+          await downloadSingleFile(model.url, tempPath, modelPath, model.size, label);
         }
 
-        let lastNotifyTime = 0;
-        let currentSpeedStr = '';
-        let currentEtaStr = '';
+        // Step 2: Download vision mmproj eyes if vision and not ready
+        if (isVision && !mmprojReady && model.mmprojUrl && model.mmprojSize) {
+          const label = `Downloading ${model.name} (Vision Eyes 2/2)`;
+          await downloadSingleFile(model.mmprojUrl, tempMmprojPath, mmprojPath, model.mmprojSize, label);
+        }
 
-        const job = RNFS.downloadFile({
-          fromUrl: model.url,
-          toFile: tempPath,
-          background: true,
-          discretionary: false,
-          progressInterval: 250,
-          begin: () => {
-            speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
-          },
-          progress: res => {
-            const total =
-              res.contentLength && res.contentLength > 100000000
-                ? res.contentLength
-                : model.size;
-            const written = res.bytesWritten;
-            setDownloaded(written);
-            setProgress(Math.min(1, Math.max(0, written / total)));
-
-            // Compute live speed and ETA
-            const now = Date.now();
-            const timeDelta = (now - speedCalcRef.current.lastTime) / 1000;
-            if (timeDelta >= 1) {
-              const bytesDelta = written - speedCalcRef.current.lastBytes;
-              if (bytesDelta > 0) {
-                const spd = bytesDelta / timeDelta;
-                currentSpeedStr = `${(spd / (1024 * 1024)).toFixed(1)} MB/s`;
-                setDownloadSpeed(currentSpeedStr);
-                const remaining = Math.max(0, total - written);
-                const secs = Math.round(remaining / spd);
-                if (secs > 60) {
-                  currentEtaStr = `~${Math.ceil(secs / 60)} min left`;
-                } else {
-                  currentEtaStr = `~${secs}s left`;
-                }
-                setDownloadEta(currentEtaStr);
-              }
-              speedCalcRef.current = { lastBytes: written, lastTime: now };
-            }
-
-            // Update Android persistent notification in status bar (throttled to once per second)
-            if (now - lastNotifyTime >= 1000) {
-              lastNotifyTime = now;
-              const percent = Math.min(100, Math.max(0, Math.round((written / total) * 100)));
-              const leftBytes = Math.max(0, total - written);
-
-              if (Platform.OS === 'android' && DownloadNotificationModule?.updateProgress) {
-                DownloadNotificationModule.updateProgress(
-                  `Downloading ${model.name}`,
-                  currentSpeedStr,
-                  currentEtaStr,
-                  formatDetailedSize(written),
-                  formatSize(total),
-                  formatDetailedSize(leftBytes),
-                  percent,
-                );
-              }
-            }
-          },
-        });
-        downloadJobIdRef.current = job.jobId;
-        const result = await job.promise;
-        downloadJobIdRef.current = null;
         isDownloadingRef.current = false;
         activeDownloadModelIdRef.current = null;
+        setDownloadTitle('');
 
-        // Dismiss persistent notification & release locks on completion
         if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
           try {
             await DownloadNotificationModule.stopForegroundService();
           } catch {}
         }
 
-        if (result.statusCode !== 200) {
-          throw new Error(`Download failed (HTTP ${result.statusCode})`);
-        }
-        const stat = await RNFS.stat(tempPath);
-        if (Math.abs(Number(stat.size) - model.size) > 4096) {
-          throw new Error('Download incomplete. Check internet connection and retry.');
-        }
-        await RNFS.moveFile(tempPath, modelPath);
         await refreshDownloadedStatus();
       }
 
@@ -821,14 +1005,41 @@ function ChatScreen() {
         ctxRef.current = null;
       }
 
-      // For large brains like 14B Ultra Genius, optimize context size to prevent iOS RAM jetsam
-      const isLargeModel = model.id === 'qwen2.5-14b' || model.size > 5000000000;
+      // Context size: optimize for 14B / 7B or vision models to avoid RAM exhaustion
+      const isLargeModel =
+        model.id === 'qwen2.5-14b' ||
+        model.id === 'qwen2-vl-7b' ||
+        model.size > 4000000000;
       const ctx = await initLlama({
         model: `file://${modelPath}`,
         n_ctx: isLargeModel ? 2048 : 4096,
         n_gpu_layers: 0,
         use_mlock: false,
+        // Disable context shifting for multimodal vision models to preserve image token alignment
+        ctx_shift: !isVision,
       });
+
+      // Initialize multimodal vision support if vision model
+      if (isVision && model.mmprojFile) {
+        try {
+          const ok = await ctx.initMultimodal({
+            path: `file://${mmprojPath}`,
+            use_gpu: false,
+            image_min_tokens: 256,
+            image_max_tokens: 1024,
+          });
+          isMultimodalReadyRef.current = ok;
+          setIsMultimodalReady(ok);
+        } catch (mErr) {
+          console.warn('Multimodal vision initialization error:', mErr);
+          isMultimodalReadyRef.current = false;
+          setIsMultimodalReady(false);
+        }
+      } else {
+        isMultimodalReadyRef.current = false;
+        setIsMultimodalReady(false);
+      }
+
       ctxRef.current = ctx;
       setSelectedModelId(model.id);
       setPhase('ready');
@@ -842,6 +1053,7 @@ function ChatScreen() {
       isDownloadingRef.current = false;
       activeDownloadModelIdRef.current = null;
       downloadJobIdRef.current = null;
+      setDownloadTitle('');
       setError(e?.message ?? String(e));
       setPhase('error');
     }
@@ -863,6 +1075,9 @@ function ChatScreen() {
           if (data.selectedModelId) {
             modelToLoad = data.selectedModelId;
           }
+          if (typeof data.voiceResponseEnabled === 'boolean') {
+            setVoiceResponseEnabled(data.voiceResponseEnabled);
+          }
         }
         if (isMounted) {
           setSelectedModelId(modelToLoad);
@@ -880,6 +1095,154 @@ function ChatScreen() {
       ctxRef.current = null;
     };
   }, [prepareModel]);
+
+  // Listen for native TTS events to sync speaking state
+  // Listen for native TTS and speech events to sync speaking state and auto-silence
+  useEffect(() => {
+    const { NativeSpeech } = NativeModules;
+    if (!NativeSpeech) return;
+
+    let subStart: any;
+    let subDone: any;
+    let subError: any;
+    let subPartial: any;
+
+    try {
+      const emitter = new NativeEventEmitter(NativeSpeech);
+      subStart = emitter.addListener('onTtsStart', () => {
+        setIsSpeaking(true);
+      });
+      subDone = emitter.addListener('onTtsDone', () => {
+        setIsSpeaking(false);
+        setSpeakingMsgId(null);
+      });
+      subError = emitter.addListener('onTtsError', () => {
+        setIsSpeaking(false);
+        setSpeakingMsgId(null);
+      });
+      // Smart Auto-Silence: after speaking, 1.4s of silence auto-finalizes and sends
+      subPartial = emitter.addListener('onSpeechPartialResults', (data: any) => {
+        const text = data?.text?.trim();
+        if (text && text.length > 0) {
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+          if (voiceResponseEnabledRef.current && isRecordingRef.current) {
+            silenceTimerRef.current = setTimeout(() => {
+              if (isRecordingRef.current) {
+                toggleRecording();
+              }
+            }, 1400);
+          }
+        }
+      });
+    } catch {}
+
+    return () => {
+      subStart?.remove?.();
+      subDone?.remove?.();
+      subError?.remove?.();
+      subPartial?.remove?.();
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+      try {
+        NativeSpeech.stopSpeaking?.();
+      } catch {}
+    };
+  }, []);
+
+  const stopSpeaking = useCallback(async () => {
+    try {
+      const { NativeSpeech } = NativeModules;
+      if (NativeSpeech && typeof NativeSpeech.stopSpeaking === 'function') {
+        await NativeSpeech.stopSpeaking();
+      }
+    } catch {}
+    setIsSpeaking(false);
+    setSpeakingMsgId(null);
+  }, []);
+
+  const speakText = useCallback(
+    async (text: string, msgId?: string) => {
+      const clean = cleanMarkdownForSpeech(text);
+      if (!clean) return;
+
+      try {
+        const { NativeSpeech } = NativeModules;
+        if (NativeSpeech && typeof NativeSpeech.speak === 'function') {
+          if (isSpeakingRef.current && speakingMsgId === msgId) {
+            await stopSpeaking();
+            return;
+          }
+          setIsSpeaking(true);
+          setSpeakingMsgId(msgId || null);
+          await NativeSpeech.speak(clean, { queueMode: 'flush', rate: 1.0, pitch: 1.0 });
+        }
+      } catch (err) {
+        setIsSpeaking(false);
+        setSpeakingMsgId(null);
+      }
+    },
+    [speakingMsgId, stopSpeaking],
+  );
+
+  // Zero-latency sentence streamer: speaks first sentence immediately, queues subsequent ones
+  const speakSentence = useCallback(
+    async (sentence: string, isFirst: boolean, msgId?: string) => {
+      const clean = cleanMarkdownForSpeech(sentence);
+      if (!clean) return;
+
+      try {
+        const { NativeSpeech } = NativeModules;
+        if (NativeSpeech && typeof NativeSpeech.speak === 'function') {
+          setIsSpeaking(true);
+          setSpeakingMsgId(msgId || null);
+          await NativeSpeech.speak(clean, {
+            queueMode: isFirst ? 'flush' : 'add',
+            rate: 1.0,
+            pitch: 1.0,
+          });
+        }
+      } catch (err) {
+        setIsSpeaking(false);
+        setSpeakingMsgId(null);
+      }
+    },
+    [],
+  );
+
+  const speakMessage = useCallback(
+    (msgId: string, content: string) => {
+      if (isSpeaking && speakingMsgId === msgId) {
+        stopSpeaking();
+      } else {
+        speakText(content, msgId);
+      }
+    },
+    [isSpeaking, speakingMsgId, stopSpeaking, speakText],
+  );
+
+  const toggleVoiceResponseMode = useCallback(async () => {
+    const nextVal = !voiceResponseEnabled;
+    setVoiceResponseEnabled(nextVal);
+    if (!nextVal) {
+      stopSpeaking();
+    }
+    try {
+      const currentSettings = (await RNFS.exists(SETTINGS_PATH))
+        ? JSON.parse(await RNFS.readFile(SETTINGS_PATH, 'utf8'))
+        : {};
+      await RNFS.writeFile(
+        SETTINGS_PATH,
+        JSON.stringify({
+          ...currentSettings,
+          voiceResponseEnabled: nextVal,
+        }),
+        'utf8',
+      );
+    } catch {}
+  }, [voiceResponseEnabled, stopSpeaking]);
 
   const switchModel = async (newId: string) => {
     if (newId === selectedModelId && phase === 'ready') return;
@@ -900,20 +1263,21 @@ function ChatScreen() {
     const otherDownloaded = AVAILABLE_MODELS.find(
       m => m.id !== model.id && downloadedModels[m.id],
     );
+    const totalSize = model.size + (model.mmprojSize || 0);
 
     if (isCurrentlyActive && !otherDownloaded) {
       Alert.alert(
         'Cannot Delete Only Model',
-        `This is the only downloaded model currently on your device (${formatSize(model.size)}).\n\nPlease download another model first before deleting this one so the app can continue working offline.`,
+        `This is the only downloaded model currently on your device (${formatSize(totalSize)}).\n\nPlease download another model first before deleting this one so the app can continue working offline.`,
       );
       return;
     }
 
     Alert.alert(
-      'Delete Model File',
+      'Delete Model Files',
       isCurrentlyActive && otherDownloaded
-        ? `This model (${model.name}) is currently active. Deleting it will switch you to ${otherDownloaded.name} and permanently free ${formatSize(model.size)} of storage.`
-        : `Delete ${model.name} from your device? This will permanently free ${formatSize(model.size)} of storage.`,
+        ? `This model (${model.name}) is currently active. Deleting it will switch you to ${otherDownloaded.name} and permanently free ${formatSize(totalSize)} of storage.`
+        : `Delete ${model.name} from your device? This will permanently free ${formatSize(totalSize)} of storage.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -932,6 +1296,16 @@ function ChatScreen() {
               if (await RNFS.exists(tempPath)) {
                 await RNFS.unlink(tempPath);
               }
+              if (model.mmprojFile) {
+                const mmPath = `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}`;
+                if (await RNFS.exists(mmPath)) {
+                  await RNFS.unlink(mmPath);
+                }
+                const tempMm = `${mmPath}.part`;
+                if (await RNFS.exists(tempMm)) {
+                  await RNFS.unlink(tempMm);
+                }
+              }
               await refreshDownloadedStatus();
               Alert.alert('Model Deleted', `${model.name} was removed from device storage.`);
             } catch (err: any) {
@@ -944,13 +1318,16 @@ function ChatScreen() {
   };
 
   const handleRequestDownload = (model: ModelOption) => {
-    if (model.size > 4000000000) {
+    const totalSize = model.size + (model.mmprojSize || 0);
+    if (totalSize > 3500000000) {
       Alert.alert(
         `Download ${model.name}?`,
-        `This is a massive ${formatSize(model.size)} AI brain.\n\n` +
+        `This is a high-capability ${formatSize(totalSize)} AI ${model.category === 'vision' ? 'multimodal vision brain' : 'brain'}.\n\n` +
           `• Connect to Wi-Fi\n` +
-          `• Requires ~10 GB free phone storage\n` +
-          `• Runs locally with deep reasoning\n\n` +
+          `• Requires ~${formatSize(totalSize * 1.2)} free phone storage\n` +
+          (model.category === 'vision'
+            ? `• Includes both Vision Brain and Vision Projector Eyes for direct screenshot & photo analysis\n\n`
+            : `• Runs locally with deep reasoning\n\n`) +
           `Proceed with download?`,
         [
           { text: 'Cancel', style: 'cancel' },
@@ -975,13 +1352,17 @@ function ChatScreen() {
     try {
       await RNFS.writeFile(
         SETTINGS_PATH,
-        JSON.stringify({ systemPrompt: nextPrompt, selectedModelId }),
+        JSON.stringify({
+          systemPrompt: nextPrompt,
+          selectedModelId,
+          voiceResponseEnabled,
+        }),
         'utf8',
       );
     } catch {}
-  }, [tempPrompt, selectedModelId, systemPrompt]);
+  }, [tempPrompt, selectedModelId, systemPrompt, voiceResponseEnabled]);
 
-  // Voice Recording / Dictation (100% Offline Speech Recognition)
+  // Voice Recording & Hands-free Conversation (100% Offline Speech Recognition)
   const toggleRecording = async () => {
     if (generating) return;
 
@@ -993,16 +1374,27 @@ function ChatScreen() {
       }
       setIsRecording(false);
 
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+
       try {
         const { NativeSpeech } = NativeModules;
         if (NativeSpeech && typeof NativeSpeech.stopListening === 'function') {
           const res = await NativeSpeech.stopListening();
-          if (res?.text && res.text.trim()) {
-            setInput(prev => (prev ? `${prev} ${res.text.trim()}` : res.text.trim()));
+          const spoken = cleanSpokenPrompt(res?.text?.trim() || '');
+          if (spoken) {
+            if (voiceResponseEnabled) {
+              // Direct conversation mode: send spoken prompt immediately and speak answer back!
+              send(spoken);
+            } else {
+              setInput(prev => (prev ? `${prev} ${spoken}` : spoken));
+            }
           } else {
             Alert.alert(
               'Voice Note',
-              'No speech detected. Please speak closer to the microphone.\n\nTip: You can also tap the microphone icon on your iOS keyboard for instant offline dictation anytime!',
+              'No speech detected. Please speak closer to the microphone.\n\nTip: You can also tap the microphone icon on your keyboard for instant dictation anytime!',
             );
           }
         }
@@ -1010,21 +1402,45 @@ function ChatScreen() {
         Alert.alert(
           'Voice Notice',
           (err?.message || 'Could not finalize voice recording.') +
-            '\n\nTip: You can also tap the microphone key on your iOS keyboard for voice input.',
+            '\n\nTip: You can also tap the microphone key on your keyboard for voice input.',
         );
       }
     } else {
+      // Stop any active TTS before listening so mic doesn't capture the speaker
+      stopSpeaking();
+
       // Start recording
       try {
-        const { NativeSpeech } = NativeModules;
-        if (NativeSpeech && typeof NativeSpeech.startListening === 'function') {
-          const perm = await NativeSpeech.requestPermissions();
-          if (!perm?.speech || !perm?.microphone) {
+        if (Platform.OS === 'android') {
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            {
+              title: 'Microphone Permission',
+              message:
+                'IlyasKaGpt needs access to your microphone for offline voice conversation.',
+              buttonPositive: 'Allow',
+            },
+          );
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
             Alert.alert(
-              'Microphone Access',
-              'Please allow Speech Recognition and Microphone access in iOS Settings to transcribe offline.',
+              'Microphone Permission',
+              'Please allow Microphone access in Android Settings to talk with IlyasKaGpt offline.',
             );
             return;
+          }
+        }
+
+        const { NativeSpeech } = NativeModules;
+        if (NativeSpeech && typeof NativeSpeech.startListening === 'function') {
+          if (Platform.OS === 'ios') {
+            const perm = await NativeSpeech.requestPermissions();
+            if (!perm?.speech || !perm?.microphone) {
+              Alert.alert(
+                'Microphone Access',
+                'Please allow Speech Recognition and Microphone access in iOS Settings to transcribe offline.',
+              );
+              return;
+            }
           }
           await NativeSpeech.startListening('');
           setIsRecording(true);
@@ -1035,14 +1451,14 @@ function ChatScreen() {
         } else {
           Alert.alert(
             'Offline Voice Dictation',
-            'NativeSpeech module is ready in Xcode! Once you rebuild your iOS app, this button transcribes speech offline.\n\nTip: You can also tap the microphone icon on your iOS keyboard for offline dictation right now!',
+            'Offline speech recognition module is ready! Rebuild your app to activate hands-free microphone listening.',
           );
         }
       } catch (err: any) {
         Alert.alert(
           'Voice Notice',
           (err?.message || 'Could not start voice recording.') +
-            '\n\nTip: You can also tap the microphone icon on your iOS keyboard for offline dictation anytime!',
+            '\n\nTip: You can also tap the microphone icon on your keyboard for offline dictation anytime!',
         );
       }
     }
@@ -1054,18 +1470,26 @@ function ChatScreen() {
     const tempId = `${Date.now()}`;
     const name = asset.fileName || 'photo.jpg';
 
-    // Set initial attachment with extracting state
+    const localUri = await ensureLocalFilePath(asset.uri);
+    const isVisionReady = activeModel.category === 'vision' && isMultimodalReadyRef.current;
+
+    // Set initial attachment
     setAttachment({
       id: tempId,
       type: 'image',
-      uri: asset.uri,
+      uri: localUri,
       name,
       size: asset.fileSize,
-      isExtracting: true,
+      isExtracting: !isVisionReady,
     });
 
+    // If running with an active Multimodal Vision model, it directly views pixels offline!
+    if (isVisionReady) {
+      return;
+    }
+
     try {
-      const text = await extractTextFromImage(asset.uri);
+      const text = await extractTextFromImage(localUri);
       setAttachment(prev => {
         if (!prev || prev.id !== tempId) return prev;
         return {
@@ -1168,20 +1592,29 @@ function ChatScreen() {
         lower.endsWith('.webp') ||
         lower.endsWith('.heic');
 
+      let localUri = doc.uri;
+      if (isImg) {
+        localUri = await ensureLocalFilePath(doc.uri);
+      }
+
+      const isVisionReady = isImg && activeModel.category === 'vision' && isMultimodalReadyRef.current;
+
       const tempId = `${Date.now()}`;
       setAttachment({
         id: tempId,
         type: isImg ? 'image' : 'document',
-        uri: doc.uri,
+        uri: localUri,
         name: doc.name || (isImg ? 'photo.jpg' : 'document.pdf'),
         size: doc.size ?? undefined,
-        isExtracting: true,
+        isExtracting: !isVisionReady,
       });
 
       let extracted = '';
       try {
         if (isImg) {
-          extracted = await extractTextFromImage(doc.uri);
+          if (!isVisionReady) {
+            extracted = await extractTextFromImage(localUri);
+          }
         } else if (lower.endsWith('.pdf')) {
           extracted = await extractTextFromPdf(doc.uri);
         } else if (
@@ -1238,137 +1671,233 @@ function ChatScreen() {
 
   // Reliable auto-scroll helper
   const scrollToBottom = useCallback((animated = true) => {
+    isUserAtBottomRef.current = true;
+    setShowScrollBottomBtn(false);
     setTimeout(() => {
       listRef.current?.scrollToEnd({ animated });
-    }, 60);
+    }, 40);
   }, []);
 
-  // Send message
-  const send = useCallback(async () => {
-    const rawText = input.trim();
-    const currentAttach = attachment;
-    const ctx = ctxRef.current;
-    if ((!rawText && !currentAttach) || !ctx || generating) {
-      return;
-    }
-
-    // Dismiss keyboard immediately to reveal full chat area
-    Keyboard.dismiss();
-
-    const text =
-      rawText ||
-      (currentAttach?.type === 'image'
-        ? (currentAttach.extractedText
-            ? 'Analyze the text from this image:'
-            : 'Analyze this photo:')
-        : 'Summarize this document:');
-    const userMsg: Message = {
-      id: `${Date.now()}u`,
-      role: 'user',
-      content: text,
-      attachment: currentAttach || undefined,
-    };
-    const botId = `${Date.now()}a`;
-
-    // Sliding context window: keep recent history within safe token budget
-    const allHistory = [...messages, userMsg];
-    let charBudget = 5000;
-    const history: Message[] = [];
-    for (let i = allHistory.length - 1; i >= 0; i--) {
-      const msg = allHistory[i];
-      const len = msg.content.length + (msg.attachment?.extractedText?.length || 0);
-      if (charBudget > 0 || i === allHistory.length - 1) {
-        history.unshift(msg);
-        charBudget -= len;
-      }
-    }
-
-    setInput('');
-    setAttachment(null);
-    setSpeed('');
-    setGenerating(true);
-    const initialList: Message[] = [
-      ...messages,
-      userMsg,
-      { id: botId, role: 'assistant', content: '' },
-    ];
-    setMessages(initialList);
-    persistSessionMessages(initialList);
-
-    // Ensure immediate scroll down to new prompt
-    scrollToBottom(true);
-
-    // Build context with attachment for offline AI
-    let promptWithAttachment = text;
-    if (currentAttach) {
-      if (currentAttach.type === 'document' && currentAttach.extractedText) {
-        promptWithAttachment = `[Attached Document: "${currentAttach.name}"]\n--- Document Content ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Document ---\n\n${text}`;
-      } else if (currentAttach.type === 'image') {
-        if (currentAttach.extractedText) {
-          promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n--- Extracted Text from Image (OCR) ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Extracted Text ---\n\n${text}`;
-        } else {
-          promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n(Note: No readable text was detected on this image.)\n\n${text}`;
-        }
-      } else {
-        promptWithAttachment = `[Attached File: "${currentAttach.name}"]\n${text}`;
-      }
-    }
-
-    let streamed = '';
-    try {
-      const result = await ctx.completion(
-        {
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...history.map((m, idx) => {
-              if (idx === history.length - 1 && currentAttach) {
-                return { role: m.role, content: promptWithAttachment };
-              }
-              return { role: m.role, content: m.content };
-            }),
-          ],
-          n_predict: 512,
-          temperature: 0.7,
-          top_p: 0.9,
-          stop: STOP_WORDS,
-        },
-        data => {
-          streamed += data.token;
-          setMessages(prev =>
-            prev.map(m => (m.id === botId ? { ...m, content: streamed } : m)),
-          );
-        },
+  // Send message (supports typed text or spoken prompt directly)
+  const send = useCallback(
+    async (customText?: unknown) => {
+      const rawText = cleanSpokenPrompt(
+        (typeof customText === 'string' ? customText : input).trim(),
       );
-      const finalText = (result.text || streamed).trim();
-      const finalList: Message[] = [
-        ...messages,
-        userMsg,
-        { id: botId, role: 'assistant', content: finalText },
-      ];
-      setMessages(finalList);
-      persistSessionMessages(finalList);
-      const tps = result.timings?.predicted_per_second;
-      if (tps) {
-        setSpeed(`${tps.toFixed(1)} tokens/s`);
+      const currentAttach = attachment;
+      const ctx = ctxRef.current;
+      if ((!rawText && !currentAttach) || !ctx || generating) {
+        return;
       }
-      scrollToBottom(true);
-    } catch (e: any) {
-      const errorList: Message[] = [
+
+      // Stop any active speech before starting new response
+      stopSpeaking();
+
+      // Dismiss keyboard immediately to reveal full chat area
+      Keyboard.dismiss();
+
+      // Reset user to bottom when sending a new message
+      isUserAtBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+
+      const text =
+        rawText ||
+        (currentAttach?.type === 'image'
+          ? (currentAttach.extractedText
+              ? 'Analyze the text from this image:'
+              : 'Analyze this photo:')
+          : 'Summarize this document:');
+      const userMsg: Message = {
+        id: `${Date.now()}u`,
+        role: 'user',
+        content: text,
+        attachment: currentAttach || undefined,
+      };
+      const botId = `${Date.now()}a`;
+
+      // Sliding context window: keep recent history within safe token budget
+      const allHistory = [...messages, userMsg];
+      let charBudget = 5000;
+      const history: Message[] = [];
+      for (let i = allHistory.length - 1; i >= 0; i--) {
+        const msg = allHistory[i];
+        const len = msg.content.length + (msg.attachment?.extractedText?.length || 0);
+        if (charBudget > 0 || i === allHistory.length - 1) {
+          history.unshift(msg);
+          charBudget -= len;
+        }
+      }
+
+      setInput('');
+      setAttachment(null);
+      setSpeed('');
+      setGenerating(true);
+      const initialList: Message[] = [
         ...messages,
         userMsg,
-        { id: botId, role: 'assistant', content: `⚠️ ${e?.message ?? String(e)}` },
+        { id: botId, role: 'assistant', content: '' },
       ];
-      setMessages(errorList);
-      persistSessionMessages(errorList);
+      setMessages(initialList);
+      persistSessionMessages(initialList);
+
+      // Ensure immediate scroll down to new prompt
       scrollToBottom(true);
-    } finally {
-      setGenerating(false);
-    }
-  }, [input, attachment, messages, generating, systemPrompt, scrollToBottom, persistSessionMessages]);
+
+      // Build context with attachment for offline AI
+      let promptWithAttachment = text;
+      if (currentAttach) {
+        if (currentAttach.type === 'document' && currentAttach.extractedText) {
+          promptWithAttachment = `[Attached Document: "${currentAttach.name}"]\n--- Document Content ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Document ---\n\n${text}`;
+        } else if (currentAttach.type === 'image') {
+          if (currentAttach.extractedText) {
+            promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n--- Extracted Text from Image (OCR) ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Extracted Text ---\n\n${text}`;
+          } else {
+            promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n(Note: No readable text was detected on this image.)\n\n${text}`;
+          }
+        } else {
+          promptWithAttachment = `[Attached File: "${currentAttach.name}"]\n${text}`;
+        }
+      }
+
+      // Check if Vision model is active and multimodal is initialized
+      const isVisionActive =
+        activeModel.category === 'vision' &&
+        isMultimodalReadyRef.current &&
+        currentAttach?.type === 'image' &&
+        !!currentAttach.uri;
+
+      let messagesPayload: any[] = [];
+      if (isVisionActive && currentAttach) {
+        messagesPayload = [
+          { role: 'system', content: systemPrompt },
+          ...history.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: text },
+              { type: 'image_url', image_url: { url: currentAttach.uri } },
+            ],
+          },
+        ];
+      } else {
+        messagesPayload = [
+          { role: 'system', content: systemPrompt },
+          ...history.map((m, idx) => {
+            if (idx === history.length - 1 && currentAttach) {
+              return { role: m.role, content: promptWithAttachment };
+            }
+            return { role: m.role, content: m.content };
+          }),
+        ];
+      }
+
+      let streamed = '';
+      let sentenceBuffer = '';
+      let sentenceCount = 0;
+
+      // Provide explicit media_paths for llama.rn native compatibility
+      const mediaPaths: string[] = [];
+      if (isVisionActive && currentAttach?.uri) {
+        let clean = currentAttach.uri;
+        if (clean.startsWith('file://')) clean = clean.slice(7);
+        mediaPaths.push(clean);
+      }
+
+      try {
+        const result = await ctx.completion(
+          {
+            messages: messagesPayload,
+            ...(mediaPaths.length > 0 ? { media_paths: mediaPaths } : {}),
+            n_predict: 512,
+            temperature: 0.7,
+            top_p: 0.9,
+            stop: STOP_WORDS,
+          },
+          data => {
+            streamed += data.token;
+            sentenceBuffer += data.token;
+
+            // Zero-latency sentence streaming: speak sentence-by-sentence
+            if (voiceResponseEnabled) {
+              const match = sentenceBuffer.match(/^(.*?[^0-9\s][.!?])(?:\s+|\n+|$)/);
+              if (match && match[1].trim().length >= 8) {
+                const completeSentence = match[1].trim();
+                sentenceBuffer = sentenceBuffer.slice(match[0].length);
+                const cleaned = cleanMarkdownForSpeech(completeSentence);
+                if (cleaned && cleaned.length > 3) {
+                  speakSentence(cleaned, sentenceCount === 0, botId);
+                  sentenceCount++;
+                }
+              }
+            }
+
+            setMessages(prev =>
+              prev.map(m => (m.id === botId ? { ...m, content: streamed } : m)),
+            );
+          },
+        );
+        const finalText = (result.text || streamed).trim();
+        const finalList: Message[] = [
+          ...messages,
+          userMsg,
+          { id: botId, role: 'assistant', content: finalText },
+        ];
+        setMessages(finalList);
+        persistSessionMessages(finalList);
+        const tps = result.timings?.predicted_per_second;
+        if (tps) {
+          setSpeed(`${tps.toFixed(1)} tokens/s`);
+        }
+
+        // Only scroll to bottom if user hasn't scrolled up to read earlier text
+        if (isUserAtBottomRef.current && !isUserTouchingScrollRef.current) {
+          scrollToBottom(true);
+        }
+
+        // Speak remaining sentence or fallback full text
+        if (voiceResponseEnabled) {
+          const remaining = cleanMarkdownForSpeech(sentenceBuffer.trim());
+          if (remaining && remaining.length > 2) {
+            speakSentence(remaining, sentenceCount === 0, botId);
+            sentenceCount++;
+          } else if (sentenceCount === 0 && finalText) {
+            speakText(finalText, botId);
+          }
+        }
+      } catch (e: any) {
+        const errorList: Message[] = [
+          ...messages,
+          userMsg,
+          { id: botId, role: 'assistant', content: `⚠️ ${e?.message ?? String(e)}` },
+        ];
+        setMessages(errorList);
+        persistSessionMessages(errorList);
+        if (isUserAtBottomRef.current && !isUserTouchingScrollRef.current) {
+          scrollToBottom(true);
+        }
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [
+      input,
+      attachment,
+      messages,
+      generating,
+      systemPrompt,
+      scrollToBottom,
+      persistSessionMessages,
+      stopSpeaking,
+      voiceResponseEnabled,
+      speakText,
+      speakSentence,
+    ],
+  );
 
   const stop = useCallback(() => {
     ctxRef.current?.stopCompletion();
-  }, []);
+    stopSpeaking();
+  }, [stopSpeaking]);
 
   // Filter sessions by date groupings (matching Image 2)
   const todaySessions = sessions.filter(s => {
@@ -1401,7 +1930,7 @@ function ChatScreen() {
 
         {phase === 'downloading' && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Downloading {activeModel.name}</Text>
+            <Text style={styles.cardTitle}>{downloadTitle || `Downloading ${activeModel.name}`}</Text>
             <View style={styles.barTrack}>
               <View
                 style={[
@@ -1416,7 +1945,12 @@ function ChatScreen() {
                 {(progress * 100).toFixed(1)}%
               </Text>
               <Text style={styles.progressBytesText}>
-                {formatDetailedSize(downloaded)} / {formatDetailedSize(activeModel.size)}
+                {formatDetailedSize(downloaded)} /{' '}
+                {formatDetailedSize(
+                  downloadTitle.includes('Vision Eyes')
+                    ? activeModel.mmprojSize || activeModel.size
+                    : activeModel.size,
+                )}
               </Text>
             </View>
 
@@ -1516,20 +2050,52 @@ function ChatScreen() {
               setSettingsOpen(true);
             }}
             accessibilityLabel="Switch AI Model">
-            <View style={styles.dot} />
+            <View
+              style={[
+                styles.dot,
+                activeModel.category === 'vision' && { backgroundColor: '#7C3AED' },
+              ]}
+            />
             <Text style={styles.badgeText}>
+              {activeModel.category === 'vision' ? '👁️ ' : '🧠 '}
               {activeModel.id === 'qwen2.5-14b'
                 ? '14B Ultra Genius'
                 : activeModel.id === 'qwen2.5-7b'
                 ? '7B Super Genius'
                 : activeModel.id === 'qwen2.5-3b'
                 ? '3B Smart AI'
-                : '1.5B Fast AI'}
+                : activeModel.id === 'qwen2.5-1.5b'
+                ? '1.5B Fast AI'
+                : activeModel.id === 'qwen2-vl-7b'
+                ? '7B Vision Master'
+                : activeModel.id === 'qwen2-vl-2b'
+                ? '2B Vision Fast'
+                : activeModel.name}
             </Text>
           </Pressable>
         </View>
 
         <View style={styles.headerRight}>
+          {/* Offline Voice Response Mode Toggle */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              voiceResponseEnabled && styles.headerVoiceBtnActive,
+              pressed && styles.pressed,
+            ]}
+            onPress={toggleVoiceResponseMode}
+            accessibilityLabel={
+              voiceResponseEnabled
+                ? 'Voice Response Mode ON (Tap to mute)'
+                : 'Voice Response Mode OFF (Tap to enable offline voice answers)'
+            }>
+            {voiceResponseEnabled ? (
+              <Volume2 size={17} color={C.accent} />
+            ) : (
+              <VolumeX size={17} color={C.muted} />
+            )}
+          </Pressable>
+
           <Pressable
             style={({ pressed }) => [
               styles.headerIconBtn,
@@ -1565,7 +2131,36 @@ function ChatScreen() {
         contentContainerStyle={styles.list}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() => scrollToBottom(true)}
+        onScrollBeginDrag={() => {
+          isUserTouchingScrollRef.current = true;
+        }}
+        onScrollEndDrag={() => {
+          setTimeout(() => {
+            isUserTouchingScrollRef.current = false;
+          }, 350);
+        }}
+        onMomentumScrollEnd={e => {
+          isUserTouchingScrollRef.current = false;
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          const isAtBottom =
+            layoutMeasurement.height + contentOffset.y >= contentSize.height - 70;
+          isUserAtBottomRef.current = isAtBottom;
+          setShowScrollBottomBtn(!isAtBottom);
+        }}
+        onScroll={e => {
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          const isAtBottom =
+            layoutMeasurement.height + contentOffset.y >= contentSize.height - 70;
+          isUserAtBottomRef.current = isAtBottom;
+          setShowScrollBottomBtn(!isAtBottom);
+        }}
+        scrollEventThrottle={16}
+        onContentSizeChange={() => {
+          // Only auto-scroll to bottom if the user hasn't scrolled up to read earlier content!
+          if (isUserAtBottomRef.current && !isUserTouchingScrollRef.current) {
+            scrollToBottom(true);
+          }
+        }}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>What can I help you build today?</Text>
@@ -1620,13 +2215,36 @@ function ChatScreen() {
               ]}>
               {item.role === 'assistant' && (
                 <View style={styles.botHeader}>
-                  <View style={styles.botBadge}>
-                    <Sparkles size={10} color={C.accent} />
+                  <View style={styles.botHeaderLeft}>
+                    <View style={styles.botBadge}>
+                      <Sparkles size={10} color={C.accent} />
+                    </View>
+                    <Text style={styles.botName}>
+                      <Text style={{ color: C.accent }}>Ilyas</Text>
+                      <Text style={{ color: '#7C3AED' }}>KaGpt</Text>
+                    </Text>
                   </View>
-                  <Text style={styles.botName}>
-                    <Text style={{ color: C.accent }}>Ilyas</Text>
-                    <Text style={{ color: '#7C3AED' }}>KaGpt</Text>
-                  </Text>
+                  {!!item.content && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.botSpeakBtn,
+                        isSpeaking && speakingMsgId === item.id && styles.botSpeakBtnActive,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => speakMessage(item.id, item.content)}
+                      hitSlop={8}
+                      accessibilityLabel={
+                        isSpeaking && speakingMsgId === item.id
+                          ? 'Stop reading'
+                          : 'Read answer aloud offline'
+                      }>
+                      {isSpeaking && speakingMsgId === item.id ? (
+                        <VolumeX size={13} color={C.danger} />
+                      ) : (
+                        <Volume2 size={13} color={C.textSecondary} />
+                      )}
+                    </Pressable>
+                  )}
                 </View>
               )}
 
@@ -1694,6 +2312,20 @@ function ChatScreen() {
 
       {!!speed && <Text style={styles.speed}>{speed}</Text>}
 
+      {/* Floating Scroll to Bottom Indicator */}
+      {showScrollBottomBtn && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.floatingScrollBtn,
+            pressed && styles.pressed,
+          ]}
+          onPress={() => scrollToBottom(true)}
+          accessibilityLabel="Scroll to latest response">
+          <ChevronDown size={15} color={C.accent} />
+          {generating && <Text style={styles.floatingScrollText}>Generating…</Text>}
+        </Pressable>
+      )}
+
       {/* Floating Capsule Input Bar */}
       <View style={styles.inputContainer}>
         {/* Offline Voice Recording Status Banner */}
@@ -1726,14 +2358,44 @@ function ChatScreen() {
               </Text>
               <Text style={styles.previewSub} numberOfLines={1}>
                 {attachment.isExtracting
-                  ? 'Extracting text with OCR…'
+                  ? 'Analyzing attachment…'
                   : attachment.type === 'image'
-                  ? attachment.extractedText
+                  ? activeModel.category === 'vision' && isMultimodalReady
+                    ? '👁️ Multimodal Vision ready (Direct pixel analysis)'
+                    : attachment.extractedText
                     ? `Text extracted: "${attachment.extractedText.slice(0, 25)}…"`
-                    : 'Photo attached · No text found'
+                    : 'Photo attached · Text AI mode (no OCR text found)'
                   : 'Document attached' + (attachment.extractedText ? ' · Text extracted' : '')}
               </Text>
             </View>
+            {attachment.type === 'image' && activeModel.category !== 'vision' && (
+              (() => {
+                const downloadedVision = AVAILABLE_MODELS.find(
+                  m => m.category === 'vision' && downloadedModels[m.id],
+                );
+                return downloadedVision ? (
+                  <Pressable
+                    style={styles.quickVisionBtn}
+                    onPress={() => switchModel(downloadedVision.id)}
+                    hitSlop={4}>
+                    <Camera size={11} color="#FFFFFF" />
+                    <Text style={styles.quickVisionBtnText}>Switch to Vision AI</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={styles.quickVisionBtnOutline}
+                    onPress={() => {
+                      setModelCategoryFilter('vision');
+                      setSettingsTab('models');
+                      setSettingsOpen(true);
+                    }}
+                    hitSlop={4}>
+                    <Camera size={11} color={C.accent} />
+                    <Text style={styles.quickVisionBtnOutlineText}>Get Vision AI</Text>
+                  </Pressable>
+                );
+              })()
+            )}
             {attachment.isExtracting && (
               <ActivityIndicator size="small" color={C.accent} style={{ marginRight: 6 }} />
             )}
@@ -1805,7 +2467,7 @@ function ChatScreen() {
                 !input.trim() && !attachment && styles.disabled,
                 pressed && styles.pressed,
               ]}
-              onPress={send}
+              onPress={() => send()}
               disabled={!input.trim() && !attachment}>
               <Send size={15} color="#FFFFFF" style={{ marginLeft: 2 }} />
             </Pressable>
@@ -1989,17 +2651,58 @@ function ChatScreen() {
               keyboardDismissMode="on-drag"
               keyboardShouldPersistTaps="handled">
               {settingsTab === 'models' ? (
-                /* Tab 1: On-Device AI Model Hub (9GB 14B, 4.7GB 7B, 2.1GB 3B, 1.1GB 1.5B) */
+                /* Tab 1: On-Device AI Model Hub with Text and Vision Categories */
                 <View>
                   <View style={styles.modelHubHeader}>
                     <Text style={styles.modelSectionTitle}>Available Offline Brains</Text>
                     <Text style={styles.settingHint}>
-                      Switch or download models. You are currently running {activeModel.name}.
+                      Select or download models by category. Currently running {activeModel.name}.
                     </Text>
                   </View>
 
+                  {/* Category Switcher Tabs */}
+                  <View style={styles.categoryTabRow}>
+                    <Pressable
+                      style={[
+                        styles.categoryTabBtn,
+                        modelCategoryFilter === 'text' && styles.categoryTabBtnActive,
+                      ]}
+                      onPress={() => setModelCategoryFilter('text')}>
+                      <Brain
+                        size={14}
+                        color={modelCategoryFilter === 'text' ? '#FFFFFF' : C.accent}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryTabBtnText,
+                          modelCategoryFilter === 'text' && styles.categoryTabBtnTextActive,
+                        ]}>
+                        Text Brains ({AVAILABLE_MODELS.filter(m => m.category === 'text').length})
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.categoryTabBtn,
+                        modelCategoryFilter === 'vision' && styles.categoryTabBtnActive,
+                      ]}
+                      onPress={() => setModelCategoryFilter('vision')}>
+                      <Camera
+                        size={14}
+                        color={modelCategoryFilter === 'vision' ? '#FFFFFF' : '#7C3AED'}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryTabBtnText,
+                          modelCategoryFilter === 'vision' && styles.categoryTabBtnTextActive,
+                        ]}>
+                        Vision Brains ({AVAILABLE_MODELS.filter(m => m.category === 'vision').length})
+                      </Text>
+                    </Pressable>
+                  </View>
+
                   <View style={{ gap: 10, marginBottom: 16 }}>
-                    {AVAILABLE_MODELS.map(m => {
+                    {AVAILABLE_MODELS.filter(m => m.category === modelCategoryFilter).map(m => {
                       const isSelected = selectedModelId === m.id;
                       const isDownloaded = downloadedModels[m.id] === true;
                       const isActive = isSelected && phase === 'ready';
@@ -2161,6 +2864,25 @@ function ChatScreen() {
                       <Brain size={13} color={C.accent} />
                       <Text style={styles.presetChipText}>Default</Text>
                     </Pressable>
+                  </View>
+
+                  {/* Voice Responses Option */}
+                  <View style={styles.voiceSettingCard}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Volume2 size={16} color={C.accent} />
+                        <Text style={styles.voiceSettingTitle}>Voice Responses (Read Aloud)</Text>
+                      </View>
+                      <Text style={styles.voiceSettingDesc}>
+                        Automatically speak AI answers out loud offline using on-device text-to-speech.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={voiceResponseEnabled}
+                      onValueChange={toggleVoiceResponseMode}
+                      trackColor={{ false: C.border, true: C.accent }}
+                      thumbColor="#FFFFFF"
+                    />
                   </View>
 
                   <View style={styles.modalActions}>
@@ -2671,6 +3393,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerVoiceBtnActive: {
+    backgroundColor: C.accentSoft,
+    borderColor: C.accent,
+  },
 
   // Chat message list
   list: {
@@ -2763,8 +3489,71 @@ const styles = StyleSheet.create({
   botHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
     marginBottom: 6,
+  },
+  botHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  botSpeakBtn: {
+    padding: 5,
+    borderRadius: 8,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  botSpeakBtnActive: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  voiceSettingCard: {
+    backgroundColor: C.surface2,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  voiceSettingTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.text,
+  },
+  voiceSettingDesc: {
+    fontSize: 12,
+    color: C.textSecondary,
+    marginTop: 3,
+    lineHeight: 16,
+  },
+  floatingScrollBtn: {
+    position: 'absolute',
+    bottom: 82,
+    right: 20,
+    backgroundColor: C.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 99,
+  },
+  floatingScrollText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.accent,
   },
   botBadge: {
     width: 18,
@@ -2926,6 +3715,37 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     marginBottom: 2,
+  },
+  categoryTabRow: {
+    flexDirection: 'row',
+    backgroundColor: C.surface2,
+    borderRadius: 12,
+    padding: 3,
+    marginTop: 10,
+    marginBottom: 12,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  categoryTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 9,
+  },
+  categoryTabBtnActive: {
+    backgroundColor: C.accent,
+  },
+  categoryTabBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textSecondary,
+  },
+  categoryTabBtnTextActive: {
+    color: '#FFFFFF',
   },
   modelCard: {
     backgroundColor: C.surface2,
@@ -3153,6 +3973,38 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 12,
     backgroundColor: C.surface2,
+  },
+  quickVisionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  quickVisionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  quickVisionBtnOutline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accentSoft,
+    borderWidth: 1,
+    borderColor: C.accent,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  quickVisionBtnOutlineText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: '700',
   },
   attachBtn: {
     width: 32,

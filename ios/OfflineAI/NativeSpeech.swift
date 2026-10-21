@@ -3,7 +3,7 @@ import AVFoundation
 import Speech
 
 @objc(NativeSpeech)
-class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
+class NativeSpeech: NSObject, SFSpeechRecognizerDelegate, AVSpeechSynthesizerDelegate {
 
   private var audioEngine = AVAudioEngine()
   private var speechRecognizer: SFSpeechRecognizer?
@@ -11,6 +11,7 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
   private var recognitionTask: SFSpeechRecognitionTask?
   private var currentTranscription: String = ""
   private var isTapInstalled = false
+  private var speechSynthesizer = AVSpeechSynthesizer()
 
   @objc
   static func requiresMainQueueSetup() -> Bool {
@@ -251,6 +252,82 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
       "onDevice": onDevice,
       "locale": recognizer?.locale.identifier ?? "none"
     ])
+  }
+
+  // Text-To-Speech (TTS): Read text out loud completely offline
+  @objc(speak:options:resolver:rejecter:)
+  func speak(
+    _ text: String,
+    options: NSDictionary?,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      if clean.isEmpty {
+        resolve(["status": "empty"])
+        return
+      }
+
+      let queueMode = options?["queueMode"] as? String ?? "flush"
+      if queueMode != "add" && self.speechSynthesizer.isSpeaking {
+        self.speechSynthesizer.stopSpeaking(at: .immediate)
+      }
+
+      self.speechSynthesizer.delegate = self
+
+      do {
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+      } catch {}
+
+      let utterance = AVSpeechUtterance(string: clean)
+      if let opts = options {
+        if let rate = opts["rate"] as? NSNumber {
+          utterance.rate = rate.floatValue * AVSpeechUtteranceDefaultSpeechRate
+        } else {
+          utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        }
+        if let pitch = opts["pitch"] as? NSNumber {
+          utterance.pitchMultiplier = pitch.floatValue
+        }
+        if let lang = opts["language"] as? String, !lang.isEmpty {
+          utterance.voice = AVSpeechSynthesisVoice(language: lang)
+        } else {
+          utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier) ?? AVSpeechSynthesisVoice(language: "en-US")
+        }
+      } else {
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier) ?? AVSpeechSynthesisVoice(language: "en-US")
+      }
+
+      self.speechSynthesizer.speak(utterance)
+      resolve(["status": "speaking"])
+    }
+  }
+
+  @objc(stopSpeaking:rejecter:)
+  func stopSpeaking(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      if self.speechSynthesizer.isSpeaking {
+        self.speechSynthesizer.stopSpeaking(at: .immediate)
+      }
+      resolve(["status": "stopped"])
+    }
+  }
+
+  @objc(isSpeaking:rejecter:)
+  func isSpeaking(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    resolve(["speaking": self.speechSynthesizer.isSpeaking])
   }
 
   private func cleanupAudio() {
