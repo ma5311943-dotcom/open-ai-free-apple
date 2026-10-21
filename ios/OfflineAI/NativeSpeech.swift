@@ -10,6 +10,7 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
   private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
   private var recognitionTask: SFSpeechRecognitionTask?
   private var currentTranscription: String = ""
+  private var isTapInstalled = false
 
   @objc
   static func requiresMainQueueSetup() -> Bool {
@@ -40,6 +41,79 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
     }
   }
 
+  // Intelligently find the best supported SFSpeechRecognizer for the user's language/locale
+  // (Prevents failures on non-standard Apple locales like en_PK by falling back to en-US/en-GB)
+  private func resolveSpeechRecognizer(preferredLocale: String?) -> SFSpeechRecognizer? {
+    let supported = SFSpeechRecognizer.supportedLocales()
+
+    // 1. If explicit locale passed
+    if let pref = preferredLocale, !pref.isEmpty {
+      let loc = Locale(identifier: pref)
+      if let recognizer = SFSpeechRecognizer(locale: loc), recognizer.isAvailable {
+        return recognizer
+      }
+      if let recognizer = SFSpeechRecognizer(locale: loc) {
+        return recognizer
+      }
+    }
+
+    // 2. Try current device locale if supported
+    let current = Locale.current
+    let currentId = current.identifier.replacingOccurrences(of: "_", with: "-")
+    if supported.contains(where: { $0.identifier.replacingOccurrences(of: "_", with: "-") == currentId }) {
+      if let recognizer = SFSpeechRecognizer(locale: current), recognizer.isAvailable {
+        return recognizer
+      }
+    }
+
+    // 3. Fallback based on language code (e.g. 'en' for 'en_PK' or 'en-PK')
+    let langCode = current.languageCode ?? (current as NSLocale).object(forKey: .languageCode) as? String ?? "en"
+
+    if langCode.lowercased() == "en" {
+      let commonEnglish = ["en-US", "en_US", "en-GB", "en_GB", "en-IN", "en_IN", "en-AU", "en-CA"]
+      for id in commonEnglish {
+        let loc = Locale(identifier: id)
+        if let recognizer = SFSpeechRecognizer(locale: loc), recognizer.isAvailable {
+          return recognizer
+        }
+      }
+      for id in commonEnglish {
+        let loc = Locale(identifier: id)
+        if let recognizer = SFSpeechRecognizer(locale: loc) {
+          return recognizer
+        }
+      }
+    }
+
+    // Match any supported locale sharing the same language code
+    for loc in supported {
+      let locLang = loc.languageCode ?? (loc as NSLocale).object(forKey: .languageCode) as? String ?? ""
+      if locLang.lowercased() == langCode.lowercased() {
+        if let recognizer = SFSpeechRecognizer(locale: loc), recognizer.isAvailable {
+          return recognizer
+        }
+      }
+    }
+
+    // 4. Default standard fallback: en-US
+    let usLocale = Locale(identifier: "en-US")
+    if let recognizer = SFSpeechRecognizer(locale: usLocale) {
+      return recognizer
+    }
+
+    // 5. System default initializer
+    if let recognizer = SFSpeechRecognizer() {
+      return recognizer
+    }
+
+    // 6. First supported locale if any exist
+    if let firstSupported = supported.first, let recognizer = SFSpeechRecognizer(locale: firstSupported) {
+      return recognizer
+    }
+
+    return nil
+  }
+
   // Start listening & transcribing speech (Offline on-device preferred)
   @objc(startListening:resolver:rejecter:)
   func startListening(
@@ -53,14 +127,12 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
       // Stop any existing task
       self.cleanupAudio()
 
-      let locale = localeIdentifier.isEmpty ? Locale.current : Locale(identifier: localeIdentifier)
-      self.speechRecognizer = SFSpeechRecognizer(locale: locale)
-
-      guard let recognizer = self.speechRecognizer, recognizer.isAvailable else {
-        reject("SPEECH_UNAVAILABLE", "Speech recognizer is not available for locale \(locale.identifier)", nil)
+      guard let recognizer = self.resolveSpeechRecognizer(preferredLocale: localeIdentifier) else {
+        reject("SPEECH_UNAVAILABLE", "Speech recognizer is not available on this device", nil)
         return
       }
 
+      self.speechRecognizer = recognizer
       recognizer.delegate = self
       self.currentTranscription = ""
 
@@ -69,16 +141,13 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
         try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
-        self.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let request = self.recognitionRequest else {
-          reject("REQUEST_FAILED", "Unable to create speech recognition request", nil)
-          return
-        }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        self.recognitionRequest = request
 
-        // Prefer on-device offline recognition without internet
+        // Allow on-device offline recognition when supported without throwing fatal error if assets not yet cached
         if #available(iOS 13.0, *) {
           if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
+            request.requiresOnDeviceRecognition = false
           }
         }
 
@@ -87,14 +156,21 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
         let inputNode = self.audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-          self.recognitionRequest?.append(buffer)
+        if self.isTapInstalled {
+          inputNode.removeTap(onBus: 0)
+          self.isTapInstalled = false
         }
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+          self?.recognitionRequest?.append(buffer)
+        }
+        self.isTapInstalled = true
 
         self.audioEngine.prepare()
         try self.audioEngine.start()
 
-        self.recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+        self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+          guard let self = self else { return }
           if let result = result {
             self.currentTranscription = result.bestTranscription.formattedString
           }
@@ -103,7 +179,11 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
           }
         }
 
-        resolve(["status": "recording", "onDevice": request.requiresOnDeviceRecognition])
+        resolve([
+          "status": "recording",
+          "locale": recognizer.locale.identifier,
+          "onDevice": recognizer.supportsOnDeviceRecognition
+        ])
       } catch {
         self.cleanupAudio()
         reject("START_FAILED", "Failed to start audio engine: \(error.localizedDescription)", error)
@@ -120,11 +200,25 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
     DispatchQueue.main.async { [weak self] in
       guard let self = self else { return }
 
-      let finalResult = self.currentTranscription
-      self.recognitionRequest?.endAudio()
-      self.cleanupAudio()
+      // 1. Immediately halt audio recording so no extraneous noise is appended
+      if self.audioEngine.isRunning {
+        self.audioEngine.stop()
+      }
+      if self.isTapInstalled {
+        self.audioEngine.inputNode.removeTap(onBus: 0)
+        self.isTapInstalled = false
+      }
 
-      resolve(["text": finalResult])
+      // 2. Tell the speech recognition request that audio input has ended
+      self.recognitionRequest?.endAudio()
+
+      // 3. Give Apple's speech engine a brief moment (350ms) to transcribe the final words
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        guard let self = self else { return }
+        let finalResult = self.currentTranscription.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.cleanupAudio()
+        resolve(["text": finalResult])
+      }
     }
   }
 
@@ -149,16 +243,23 @@ class NativeSpeech: NSObject, SFSpeechRecognizerDelegate {
     _ resolve: @escaping RCTPromiseResolveBlock,
     rejecter reject: @escaping RCTPromiseRejectBlock
   ) {
-    let recognizer = SFSpeechRecognizer(locale: Locale.current)
-    let available = recognizer?.isAvailable ?? false
+    let recognizer = self.resolveSpeechRecognizer(preferredLocale: nil)
+    let available = recognizer != nil
     let onDevice = (recognizer?.supportsOnDeviceRecognition ?? false)
-    resolve(["available": available, "onDevice": onDevice])
+    resolve([
+      "available": available,
+      "onDevice": onDevice,
+      "locale": recognizer?.locale.identifier ?? "none"
+    ])
   }
 
   private func cleanupAudio() {
     if audioEngine.isRunning {
       audioEngine.stop()
+    }
+    if isTapInstalled {
       audioEngine.inputNode.removeTap(onBus: 0)
+      isTapInstalled = false
     }
     recognitionRequest = nil
     recognitionTask = nil

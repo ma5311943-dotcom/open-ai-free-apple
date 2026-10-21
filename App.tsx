@@ -270,6 +270,7 @@ function ChatScreen() {
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'models' | 'persona'>('models');
   const [tempPrompt, setTempPrompt] = useState(SYSTEM_PROMPT);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
@@ -623,9 +624,11 @@ function ChatScreen() {
         ctxRef.current = null;
       }
 
+      // For large brains like 14B Ultra Genius, optimize context size to prevent iOS RAM jetsam
+      const isLargeModel = model.id === 'qwen2.5-14b' || model.size > 5000000000;
       const ctx = await initLlama({
         model: `file://${modelPath}`,
-        n_ctx: 4096,
+        n_ctx: isLargeModel ? 2048 : 4096,
         n_gpu_layers: 0,
         use_mlock: false,
       });
@@ -780,11 +783,18 @@ function ChatScreen() {
           if (res?.text && res.text.trim()) {
             setInput(prev => (prev ? `${prev} ${res.text.trim()}` : res.text.trim()));
           } else {
-            Alert.alert('Voice Note', 'No speech was detected. Please try speaking closer to the microphone.');
+            Alert.alert(
+              'Voice Note',
+              'No speech detected. Please speak closer to the microphone.\n\nTip: You can also tap the microphone icon on your iOS keyboard for instant offline dictation anytime!',
+            );
           }
         }
       } catch (err: any) {
-        Alert.alert('Voice Notice', err?.message || 'Could not finalize voice recording.');
+        Alert.alert(
+          'Voice Notice',
+          (err?.message || 'Could not finalize voice recording.') +
+            '\n\nTip: You can also tap the microphone key on your iOS keyboard for voice input.',
+        );
       }
     } else {
       // Start recording
@@ -808,11 +818,15 @@ function ChatScreen() {
         } else {
           Alert.alert(
             'Offline Voice Dictation',
-            'NativeSpeech module is ready in Xcode! Once you rebuild your iOS app, this button transcribes speech 100% offline without internet.\n\nTip: You can also tap the microphone icon on your iOS keyboard for offline dictation right now!',
+            'NativeSpeech module is ready in Xcode! Once you rebuild your iOS app, this button transcribes speech offline.\n\nTip: You can also tap the microphone icon on your iOS keyboard for offline dictation right now!',
           );
         }
       } catch (err: any) {
-        Alert.alert('Voice Notice', err?.message || 'Could not start voice recording.');
+        Alert.alert(
+          'Voice Notice',
+          (err?.message || 'Could not start voice recording.') +
+            '\n\nTip: You can also tap the microphone icon on your iOS keyboard for offline dictation anytime!',
+        );
       }
     }
   };
@@ -1209,7 +1223,13 @@ function ChatScreen() {
             <Text style={{ color: '#EC4899' }}>Gpt</Text>
           </Text>
 
-          <View style={styles.badge}>
+          <Pressable
+            style={({ pressed }) => [styles.badge, pressed && styles.pressed]}
+            onPress={() => {
+              setSettingsTab('models');
+              setSettingsOpen(true);
+            }}
+            accessibilityLabel="Switch AI Model">
             <View style={styles.dot} />
             <Text style={styles.badgeText}>
               {activeModel.id === 'qwen2.5-14b'
@@ -1220,7 +1240,7 @@ function ChatScreen() {
                 ? '3B Smart AI'
                 : '1.5B Fast AI'}
             </Text>
-          </View>
+          </Pressable>
         </View>
 
         <View style={styles.headerRight}>
@@ -1241,6 +1261,7 @@ function ChatScreen() {
             ]}
             onPress={() => {
               setTempPrompt(systemPrompt);
+              setSettingsTab('persona');
               setSettingsOpen(true);
             }}
             accessibilityLabel="Settings">
@@ -1599,19 +1620,27 @@ function ChatScreen() {
             ]}>
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleRow}>
-                <Settings size={18} color={C.text} />
-                <Text style={styles.modalTitle}>AI Personalization</Text>
+                {settingsTab === 'models' ? (
+                  <Cpu size={18} color={C.accent} />
+                ) : (
+                  <Settings size={18} color={C.accent} />
+                )}
+                <Text style={styles.modalTitle}>
+                  {settingsTab === 'models' ? 'On-Device AI Models' : 'Personalization & Persona'}
+                </Text>
               </View>
               <View style={styles.modalHeaderActions}>
                 {/* Small button to close/hide keyboard */}
-                <Pressable
-                  style={styles.dismissKeyboardBtn}
-                  onPress={() => Keyboard.dismiss()}
-                  hitSlop={8}
-                  accessibilityLabel="Close Keyboard">
-                  <ChevronDown size={14} color={C.accent} />
-                  <Text style={styles.dismissKeyboardText}>Close Keyboard</Text>
-                </Pressable>
+                {keyboardVisible && (
+                  <Pressable
+                    style={styles.dismissKeyboardBtn}
+                    onPress={() => Keyboard.dismiss()}
+                    hitSlop={8}
+                    accessibilityLabel="Close Keyboard">
+                    <ChevronDown size={14} color={C.accent} />
+                    <Text style={styles.dismissKeyboardText}>Hide Keyboard</Text>
+                  </Pressable>
+                )}
                 <Pressable
                   style={styles.modalCloseBtn}
                   onPress={() => {
@@ -1625,215 +1654,262 @@ function ChatScreen() {
               </View>
             </View>
 
+            {/* Segmented Tab Bar */}
+            <View style={styles.tabContainer}>
+              <Pressable
+                style={[
+                  styles.tabButton,
+                  settingsTab === 'models' && styles.tabButtonActive,
+                ]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setSettingsTab('models');
+                }}>
+                <Cpu
+                  size={15}
+                  color={settingsTab === 'models' ? C.accent : C.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    settingsTab === 'models' && styles.tabButtonTextActive,
+                  ]}>
+                  Model Center
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.tabButton,
+                  settingsTab === 'persona' && styles.tabButtonActive,
+                ]}
+                onPress={() => setSettingsTab('persona')}>
+                <Settings
+                  size={15}
+                  color={settingsTab === 'persona' ? C.accent : C.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    settingsTab === 'persona' && styles.tabButtonTextActive,
+                  ]}>
+                  Persona & Prompt
+                </Text>
+              </Pressable>
+            </View>
+
             <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardDismissMode="on-drag"
               keyboardShouldPersistTaps="handled">
-              <View style={styles.settingLabelRow}>
-                <Text style={styles.settingLabel}>Custom Instructions & Persona</Text>
-                <Pressable
-                  style={styles.dismissKeyboardChip}
-                  onPress={() => Keyboard.dismiss()}
-                  hitSlop={8}>
-                  <ChevronDown size={12} color={C.accent} />
-                  <Text style={styles.dismissKeyboardChipText}>Hide Keyboard</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.settingHint}>
-                Tell the AI how to answer (e.g. short responses, bullet points, tone):
-              </Text>
+              {settingsTab === 'models' ? (
+                /* Tab 1: On-Device AI Model Hub (9GB 14B, 4.7GB 7B, 2.1GB 3B, 1.1GB 1.5B) */
+                <View>
+                  <View style={styles.modelHubHeader}>
+                    <Text style={styles.modelSectionTitle}>Available Offline Brains</Text>
+                    <Text style={styles.settingHint}>
+                      Switch or download models. You are currently running {activeModel.name}.
+                    </Text>
+                  </View>
 
-              <TextInput
-                style={styles.systemInput}
-                value={tempPrompt}
-                onChangeText={setTempPrompt}
-                multiline
-                placeholder="Type your custom instructions here..."
-                placeholderTextColor={C.muted}
-              />
+                  <View style={{ gap: 10, marginBottom: 16 }}>
+                    {AVAILABLE_MODELS.map(m => {
+                      const isSelected = selectedModelId === m.id;
+                      const isDownloaded = downloadedModels[m.id] === true;
+                      const isActive = isSelected && phase === 'ready';
 
-              <Text style={styles.presetTitle}>Quick Presets</Text>
-              <View style={styles.presetRow}>
-                <Pressable
-                  style={styles.presetChip}
-                  onPress={() =>
-                    setTempPrompt(
-                      'Always give very short, concise responses. Use brief bullet points. Avoid filler.',
-                    )
-                  }>
-                  <Zap size={13} color={C.accent} />
-                  <Text style={styles.presetChipText}>Short & Concise</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.presetChip}
-                  onPress={() =>
-                    setTempPrompt(
-                      'You are an expert developer. Provide clean code snippets and brief, direct explanations.',
-                    )
-                  }>
-                  <Code2 size={13} color={C.accent} />
-                  <Text style={styles.presetChipText}>Code Expert</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.presetChip}
-                  onPress={() =>
-                    setTempPrompt(
-                      'You are a helpful, concise assistant running fully offline on a phone. Answer clearly.',
-                    )
-                  }>
-                  <Brain size={13} color={C.accent} />
-                  <Text style={styles.presetChipText}>Default</Text>
-                </Pressable>
-              </View>
-
-              {/* On-Device AI Model Hub */}
-              <View style={styles.modelHubHeader}>
-                <Text style={styles.modelSectionTitle}>On-Device AI Model Hub</Text>
-                <Text style={styles.settingHint}>
-                  Download, manage storage & switch offline brains directly on your phone:
-                </Text>
-              </View>
-
-              <View style={{ gap: 10, marginBottom: 16 }}>
-                {AVAILABLE_MODELS.map(m => {
-                  const isSelected = selectedModelId === m.id;
-                  const isDownloaded = downloadedModels[m.id] === true;
-                  const isActive = isSelected && phase === 'ready';
-
-                  return (
-                    <View
-                      key={m.id}
-                      style={[
-                        styles.modelCard,
-                        isActive && styles.modelCardActive,
-                      ]}>
-                      <View style={styles.modelCardTop}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
-                          <Text
-                            style={[
-                              styles.modelCardName,
-                              isActive && { color: C.accent },
-                            ]}>
-                            {m.name}
-                          </Text>
-                        </View>
+                      return (
                         <View
+                          key={m.id}
                           style={[
-                            styles.modelTag,
-                            isActive && styles.modelTagActive,
+                            styles.modelCard,
+                            isActive && styles.modelCardActive,
                           ]}>
-                          <Text
-                            style={[
-                              styles.modelTagText,
-                              isActive && { color: '#FFFFFF' },
-                            ]}>
-                            {m.tag}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <Text style={styles.modelCardDesc}>{m.description}</Text>
-
-                      {/* Status badge & action buttons */}
-                      <View style={styles.modelActionRow}>
-                        {isActive ? (
-                          <View style={styles.modelActiveBadge}>
-                            <Check size={12} color="#059669" />
-                            <Text style={styles.modelActiveBadgeText}>Active & Running</Text>
+                          <View style={styles.modelCardTop}>
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text
+                                style={[
+                                  styles.modelCardName,
+                                  isActive && { color: C.accent },
+                                ]}>
+                                {m.name}
+                              </Text>
+                            </View>
+                            <View
+                              style={[
+                                styles.modelTag,
+                                isActive && styles.modelTagActive,
+                              ]}>
+                              <Text
+                                style={[
+                                  styles.modelTagText,
+                                  isActive && { color: '#FFFFFF' },
+                                ]}>
+                                {m.tag}
+                              </Text>
+                            </View>
                           </View>
-                        ) : isDownloaded ? (
-                          <View style={styles.modelDownloadedBadge}>
-                            <HardDrive size={12} color={C.accent} />
-                            <Text style={styles.modelDownloadedBadgeText}>Downloaded</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.modelNotDownloadedBadge}>
-                            <Text style={styles.modelNotDownloadedText}>Not on device</Text>
-                          </View>
-                        )}
 
-                        <View style={styles.modelBtnGroup}>
-                          {isDownloaded && (
-                            <>
-                              {!isActive && (
+                          <Text style={styles.modelCardDesc}>{m.description}</Text>
+
+                          {/* Status badge & action buttons */}
+                          <View style={styles.modelActionRow}>
+                            {isActive ? (
+                              <View style={styles.modelActiveBadge}>
+                                <Check size={12} color="#059669" />
+                                <Text style={styles.modelActiveBadgeText}>Active & Running</Text>
+                              </View>
+                            ) : isDownloaded ? (
+                              <View style={styles.modelDownloadedBadge}>
+                                <HardDrive size={12} color={C.accent} />
+                                <Text style={styles.modelDownloadedBadgeText}>Downloaded</Text>
+                              </View>
+                            ) : (
+                              <View style={styles.modelNotDownloadedBadge}>
+                                <Text style={styles.modelNotDownloadedText}>Not on device</Text>
+                              </View>
+                            )}
+
+                            <View style={styles.modelBtnGroup}>
+                              {isDownloaded && (
+                                <>
+                                  {!isActive && (
+                                    <Pressable
+                                      style={({ pressed }) => [
+                                        styles.modelSwitchBtn,
+                                        pressed && styles.pressed,
+                                      ]}
+                                      onPress={() => switchModel(m.id)}>
+                                      <Zap size={12} color="#FFFFFF" />
+                                      <Text style={styles.modelSwitchBtnText}>Switch</Text>
+                                    </Pressable>
+                                  )}
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelDeleteBtn,
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => deleteModel(m)}
+                                    hitSlop={6}
+                                    accessibilityLabel={`Delete ${m.name}`}>
+                                    <Trash2 size={13} color={C.danger} />
+                                  </Pressable>
+                                </>
+                              )}
+
+                              {!isDownloaded && (
                                 <Pressable
                                   style={({ pressed }) => [
-                                    styles.modelSwitchBtn,
+                                    styles.modelDownloadBtn,
                                     pressed && styles.pressed,
                                   ]}
-                                  onPress={() => switchModel(m.id)}>
-                                  <Zap size={12} color="#FFFFFF" />
-                                  <Text style={styles.modelSwitchBtnText}>Switch</Text>
+                                  onPress={() => handleRequestDownload(m)}>
+                                  <Download size={13} color={C.accent} />
+                                  <Text style={styles.modelDownloadBtnText}>
+                                    Download & Use
+                                  </Text>
                                 </Pressable>
                               )}
-                              <Pressable
-                                style={({ pressed }) => [
-                                  styles.modelDeleteBtn,
-                                  pressed && styles.pressed,
-                                ]}
-                                onPress={() => deleteModel(m)}
-                                hitSlop={6}
-                                accessibilityLabel={`Delete ${m.name}`}>
-                                <Trash2 size={13} color={C.danger} />
-                              </Pressable>
-                            </>
-                          )}
-
-                          {!isDownloaded && (
-                            <Pressable
-                              style={({ pressed }) => [
-                                styles.modelDownloadBtn,
-                                pressed && styles.pressed,
-                              ]}
-                              onPress={() => handleRequestDownload(m)}>
-                              <Download size={13} color={C.accent} />
-                              <Text style={styles.modelDownloadBtnText}>
-                                Download & Use
-                              </Text>
-                            </Pressable>
-                          )}
+                            </View>
+                          </View>
                         </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : (
+                /* Tab 2: Persona & Instructions */
+                <View>
+                  <View style={styles.settingLabelRow}>
+                    <Text style={styles.settingLabel}>Custom Instructions & Persona</Text>
+                    <Pressable
+                      style={styles.dismissKeyboardChip}
+                      onPress={() => Keyboard.dismiss()}
+                      hitSlop={8}>
+                      <ChevronDown size={12} color={C.accent} />
+                      <Text style={styles.dismissKeyboardChipText}>Hide Keyboard</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.settingHint}>
+                    Tell the AI how to answer (e.g. short responses, bullet points, tone):
+                  </Text>
 
-              <View style={styles.modalActions}>
-                <Pressable
-                  style={[styles.modalBtn, styles.clearBtn]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setMessages([]);
-                    setSettingsOpen(false);
-                  }}>
-                  <Trash2 size={15} color={C.danger} />
-                  <Text style={styles.clearBtnText}>Clear Chat</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.modalBtn, styles.saveBtn]}
-                  onPress={saveSettings}>
-                  <Check size={16} color="#FFFFFF" />
-                  <Text style={styles.saveBtnText}>Save</Text>
-                </Pressable>
-              </View>
+                  <TextInput
+                    style={styles.systemInput}
+                    value={tempPrompt}
+                    onChangeText={setTempPrompt}
+                    multiline
+                    placeholder="Type your custom instructions here..."
+                    placeholderTextColor={C.muted}
+                  />
+
+                  <Text style={styles.presetTitle}>Quick Presets</Text>
+                  <View style={styles.presetRow}>
+                    <Pressable
+                      style={styles.presetChip}
+                      onPress={() =>
+                        setTempPrompt(
+                          'Always give very short, concise responses. Use brief bullet points. Avoid filler.',
+                        )
+                      }>
+                      <Zap size={13} color={C.accent} />
+                      <Text style={styles.presetChipText}>Short & Concise</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.presetChip}
+                      onPress={() =>
+                        setTempPrompt(
+                          'You are an expert developer. Provide clean code snippets and brief, direct explanations.',
+                        )
+                      }>
+                      <Code2 size={13} color={C.accent} />
+                      <Text style={styles.presetChipText}>Code Expert</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.presetChip}
+                      onPress={() =>
+                        setTempPrompt(
+                          'You are a helpful, concise assistant running fully offline on a phone. Answer clearly.',
+                        )
+                      }>
+                      <Brain size={13} color={C.accent} />
+                      <Text style={styles.presetChipText}>Default</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.modalActions}>
+                    <Pressable
+                      style={[styles.modalBtn, styles.clearBtn]}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setMessages([]);
+                        setSettingsOpen(false);
+                      }}>
+                      <Trash2 size={15} color={C.danger} />
+                      <Text style={styles.clearBtnText}>Clear Chat</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.modalBtn, styles.saveBtn]}
+                      onPress={saveSettings}>
+                      <Check size={16} color="#FFFFFF" />
+                      <Text style={styles.saveBtnText}>Save Persona</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Sessions / Chat History Drawer (matching Image 2) */}
+      {/* Sessions / Chat History Drawer (Full Screen Pure White) */}
       <Modal
         visible={drawerOpen}
-        animationType="fade"
-        transparent
+        animationType="slide"
+        transparent={false}
         onRequestClose={() => setDrawerOpen(false)}>
+        <StatusBar barStyle="dark-content" />
         <View style={styles.drawerOverlay}>
-          <Pressable
-            style={styles.drawerBackdrop}
-            onPress={() => setDrawerOpen(false)}
-          />
-
           <View style={styles.drawerContainer}>
             {/* Header: App Title & Close button */}
             <View style={styles.drawerHeader}>
@@ -2003,7 +2079,7 @@ function ChatScreen() {
                 ]}
                 onPress={() => {
                   setDrawerOpen(false);
-                  setTempPrompt(systemPrompt);
+                  setSettingsTab('models');
                   setSettingsOpen(true);
                 }}>
                 <Cpu size={18} color={C.accent} />
@@ -2024,6 +2100,7 @@ function ChatScreen() {
                 onPress={() => {
                   setDrawerOpen(false);
                   setTempPrompt(systemPrompt);
+                  setSettingsTab('persona');
                   setSettingsOpen(true);
                 }}>
                 <Settings size={18} color={C.textSecondary} />
@@ -2947,34 +3024,59 @@ const styles = StyleSheet.create({
   saveBtn: { backgroundColor: C.accent },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-  // Sessions / Chat History Drawer (matching Image 2)
-  drawerOverlay: {
+  // Tab Switcher inside Modal
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: C.surface2,
+    borderRadius: 14,
+    padding: 3,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  tabButton: {
     flex: 1,
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 11,
+  },
+  tabButtonActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.textSecondary,
+  },
+  tabButtonTextActive: {
+    color: C.accent,
+    fontWeight: '700',
+  },
+
+  // Sessions / Chat History Drawer - Full Screen Pure White
+  drawerOverlay: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   drawerBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    display: 'none',
   },
   drawerContainer: {
-    width: '82%',
-    maxWidth: 340,
+    flex: 1,
+    width: '100%',
     height: '100%',
-    backgroundColor: C.surface,
+    backgroundColor: '#FFFFFF',
     paddingTop: Platform.OS === 'ios' ? 54 : 24,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    paddingHorizontal: 16,
-    borderRightWidth: 1,
-    borderRightColor: C.border,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 4, height: 0 },
-    shadowRadius: 16,
-    elevation: 12,
+    paddingHorizontal: 20,
   },
   drawerHeader: {
     flexDirection: 'row',
