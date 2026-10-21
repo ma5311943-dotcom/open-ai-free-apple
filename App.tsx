@@ -19,7 +19,6 @@ import {
   PermissionsAndroid,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   Share,
   StatusBar,
@@ -27,7 +26,6 @@ import {
   Switch,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import RNFS from 'react-native-fs';
@@ -48,6 +46,7 @@ import {
   Image as ImageIcon,
   Lightbulb,
   Mail,
+  Maximize2,
   Menu,
   MessageSquare,
   Mic,
@@ -168,7 +167,6 @@ const SYSTEM_PROMPT =
   'Answer clearly and accurately in any language requested (English, Urdu, Hindi, Arabic, etc.). ' +
   'When an image or screenshot is attached, accurately inspect all visual details, identify the application interface (e.g. WhatsApp, Telegram, Android/iOS System, or Camera Photo), read all visible text, and answer questions directly without guessing or hallucinating.';
 const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '</s>', '<|eot_id|>'];
-const MAX_HISTORY = 8;
 const OCR_API_KEYS = ['helloworld', 'K88796853688957'];
 
 type Phase = 'checking' | 'downloading' | 'loading' | 'ready' | 'error';
@@ -230,7 +228,7 @@ async function extractTextFromImage(uri: string): Promise<string> {
         return nativeText.trim();
       }
     }
-  } catch (err) {
+  } catch {
     // Native module not linked or failed, fallback to online OCR
   }
 
@@ -273,7 +271,7 @@ async function extractTextFromImage(uri: string): Promise<string> {
         // try next key
       }
     }
-  } catch (e) {
+  } catch {
     // OCR fetch failed
   }
 
@@ -291,7 +289,7 @@ async function extractTextFromPdf(uri: string): Promise<string> {
         return nativeText.trim();
       }
     }
-  } catch (err) {
+  } catch {
     // Native module not linked or failed
   }
 
@@ -327,7 +325,7 @@ async function extractTextFromPdf(uri: string): Promise<string> {
         return filtered.join('\n').substring(0, 30000);
       }
     }
-  } catch (e) {
+  } catch {
     // raw read failed
   }
 
@@ -379,6 +377,11 @@ function formatDetailedSize(bytes: number) {
 
 function formatMB(bytes: number) {
   return formatSize(bytes);
+}
+
+function formatMBOnly(bytes: number) {
+  if (!bytes || bytes <= 0) return '0 MB';
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Clean markdown syntax for natural-sounding offline voice reading
@@ -459,9 +462,14 @@ function ChatScreen() {
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'models' | 'persona'>('models');
+  const [settingsTab, setSettingsTab] = useState<'models' | 'downloads' | 'persona'>('models');
   const [tempPrompt, setTempPrompt] = useState(SYSTEM_PROMPT);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [downloadMinimized, setDownloadMinimized] = useState(false);
+  const [downloadTotal, setDownloadTotal] = useState(0);
+  const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
+  const [activeTextModelId, setActiveTextModelId] = useState<string>('qwen2.5-1.5b');
+  const [activeVisionModelId, setActiveVisionModelId] = useState<string>('qwen2-vl-7b');
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const isPickingMediaRef = useRef(false);
@@ -486,6 +494,7 @@ function ChatScreen() {
   isSpeakingRef.current = isSpeaking;
   const isRecordingRef = useRef(isRecording);
   isRecordingRef.current = isRecording;
+  const toggleRecordingRef = useRef<() => Promise<void> | void>(() => {});
   const voiceResponseEnabledRef = useRef(voiceResponseEnabled);
   voiceResponseEnabledRef.current = voiceResponseEnabled;
   const silenceTimerRef = useRef<any>(null);
@@ -500,6 +509,11 @@ function ChatScreen() {
 
   const activeModel =
     AVAILABLE_MODELS.find(m => m.id === selectedModelId) || AVAILABLE_MODELS[0];
+
+  const activeDownloadModel =
+    AVAILABLE_MODELS.find(m => m.id === downloadingModelId) ||
+    AVAILABLE_MODELS.find(m => m.id === activeDownloadModelIdRef.current) ||
+    activeModel;
 
   // Refresh which models are stored locally on the phone (verifies main file and mmproj if vision)
   const refreshDownloadedStatus = useCallback(async () => {
@@ -763,6 +777,8 @@ function ChatScreen() {
   const cancelDownload = useCallback(async () => {
     isDownloadingRef.current = false;
     activeDownloadModelIdRef.current = null;
+    setDownloadingModelId(null);
+    setDownloadMinimized(false);
     if (downloadJobIdRef.current !== null) {
       try {
         RNFS.stopDownload(downloadJobIdRef.current);
@@ -775,7 +791,7 @@ function ChatScreen() {
         await DownloadNotificationModule.stopForegroundService();
       } catch {}
     }
-    const model = activeModel;
+    const model = activeDownloadModel;
     try {
       const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
       if (await RNFS.exists(tempPath)) {
@@ -790,12 +806,13 @@ function ChatScreen() {
     } catch {}
     setProgress(0);
     setDownloaded(0);
+    setDownloadTotal(0);
     setDownloadSpeed('');
     setDownloadEta('');
     setDownloadTitle('');
     setPhase('error');
     setError('Download was canceled.');
-  }, [activeModel]);
+  }, [activeDownloadModel]);
 
   // Model preparation and switching (Protected against duplicate concurrent triggers)
   const prepareModel = useCallback(async (targetModelId?: string) => {
@@ -856,6 +873,8 @@ function ChatScreen() {
         setPhase('downloading');
         isDownloadingRef.current = true;
         activeDownloadModelIdRef.current = model.id;
+        setDownloadingModelId(model.id);
+        setDownloadTotal(model.size);
 
         // On Android 13+, request notification permission
         if (Platform.OS === 'android' && Platform.Version >= 33) {
@@ -874,6 +893,7 @@ function ChatScreen() {
           label: string,
         ) => {
           setDownloadTitle(label);
+          setDownloadTotal(expectedSize);
           setProgress(0);
           setDownloaded(0);
           setDownloadSpeed('');
@@ -920,6 +940,7 @@ function ChatScreen() {
                   : expectedSize;
               const written = res.bytesWritten;
               setDownloaded(written);
+              setDownloadTotal(total);
               setProgress(Math.min(1, Math.max(0, written / total)));
 
               const now = Date.now();
@@ -986,7 +1007,9 @@ function ChatScreen() {
 
         isDownloadingRef.current = false;
         activeDownloadModelIdRef.current = null;
+        setDownloadingModelId(null);
         setDownloadTitle('');
+        setDownloadMinimized(false);
 
         if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
           try {
@@ -1052,6 +1075,8 @@ function ChatScreen() {
       }
       isDownloadingRef.current = false;
       activeDownloadModelIdRef.current = null;
+      setDownloadingModelId(null);
+      setDownloadMinimized(false);
       downloadJobIdRef.current = null;
       setDownloadTitle('');
       setError(e?.message ?? String(e));
@@ -1077,6 +1102,12 @@ function ChatScreen() {
           }
           if (typeof data.voiceResponseEnabled === 'boolean') {
             setVoiceResponseEnabled(data.voiceResponseEnabled);
+          }
+          if (data.activeTextModelId) {
+            setActiveTextModelId(data.activeTextModelId);
+          }
+          if (data.activeVisionModelId) {
+            setActiveVisionModelId(data.activeVisionModelId);
           }
         }
         if (isMounted) {
@@ -1130,7 +1161,7 @@ function ChatScreen() {
           if (voiceResponseEnabledRef.current && isRecordingRef.current) {
             silenceTimerRef.current = setTimeout(() => {
               if (isRecordingRef.current) {
-                toggleRecording();
+                toggleRecordingRef.current();
               }
             }, 1400);
           }
@@ -1179,7 +1210,7 @@ function ChatScreen() {
           setSpeakingMsgId(msgId || null);
           await NativeSpeech.speak(clean, { queueMode: 'flush', rate: 1.0, pitch: 1.0 });
         }
-      } catch (err) {
+      } catch {
         setIsSpeaking(false);
         setSpeakingMsgId(null);
       }
@@ -1204,7 +1235,7 @@ function ChatScreen() {
             pitch: 1.0,
           });
         }
-      } catch (err) {
+      } catch {
         setIsSpeaking(false);
         setSpeakingMsgId(null);
       }
@@ -1248,14 +1279,39 @@ function ChatScreen() {
     if (newId === selectedModelId && phase === 'ready') return;
     setSettingsOpen(false);
     setSelectedModelId(newId);
+    const targetModel = AVAILABLE_MODELS.find(m => m.id === newId);
+    let nextText = activeTextModelId;
+    let nextVision = activeVisionModelId;
+    if (targetModel?.category === 'text') {
+      nextText = newId;
+      setActiveTextModelId(newId);
+    } else if (targetModel?.category === 'vision') {
+      nextVision = newId;
+      setActiveVisionModelId(newId);
+    }
     try {
       await RNFS.writeFile(
         SETTINGS_PATH,
-        JSON.stringify({ systemPrompt, selectedModelId: newId }),
+        JSON.stringify({
+          systemPrompt,
+          selectedModelId: newId,
+          voiceResponseEnabled,
+          activeTextModelId: nextText,
+          activeVisionModelId: nextVision,
+        }),
         'utf8',
       );
     } catch {}
     prepareModel(newId);
+  };
+
+  const activateModel = async (modelId: string, category: 'text' | 'vision') => {
+    if (category === 'text') {
+      setActiveTextModelId(modelId);
+    } else {
+      setActiveVisionModelId(modelId);
+    }
+    await switchModel(modelId);
   };
 
   const deleteModel = (model: ModelOption) => {
@@ -1318,6 +1374,7 @@ function ChatScreen() {
   };
 
   const handleRequestDownload = (model: ModelOption) => {
+    setDownloadMinimized(false);
     const totalSize = model.size + (model.mmprojSize || 0);
     if (totalSize > 3500000000) {
       Alert.alert(
@@ -1356,11 +1413,13 @@ function ChatScreen() {
           systemPrompt: nextPrompt,
           selectedModelId,
           voiceResponseEnabled,
+          activeTextModelId,
+          activeVisionModelId,
         }),
         'utf8',
       );
     } catch {}
-  }, [tempPrompt, selectedModelId, systemPrompt, voiceResponseEnabled]);
+  }, [tempPrompt, selectedModelId, voiceResponseEnabled, activeTextModelId, activeVisionModelId]);
 
   // Voice Recording & Hands-free Conversation (100% Offline Speech Recognition)
   const toggleRecording = async () => {
@@ -1463,6 +1522,7 @@ function ChatScreen() {
       }
     }
   };
+  toggleRecordingRef.current = toggleRecording;
 
   // Helper to extract text from chosen image with feedback
   const processImageAttachment = async (asset: { uri?: string; fileName?: string; fileSize?: number }) => {
@@ -1891,6 +1951,7 @@ function ChatScreen() {
       voiceResponseEnabled,
       speakText,
       speakSentence,
+      activeModel.category,
     ],
   );
 
@@ -1916,7 +1977,7 @@ function ChatScreen() {
   });
 
   // ---- UI -----------------------------------------------------------------
-  if (phase !== 'ready') {
+  if ((phase !== 'ready' && !downloadMinimized) || (phase === 'checking' && !ctxRef.current)) {
     return (
       <View style={styles.center}>
         <Text style={styles.logo}>
@@ -1924,13 +1985,31 @@ function ChatScreen() {
           <Text style={{ color: '#7C3AED' }}>Ka</Text>
           <Text style={{ color: '#EC4899' }}>Gpt</Text>
         </Text>
-        <Text style={styles.subtitle}>{activeModel.name} · On-Device</Text>
+        <Text style={styles.subtitle}>{activeDownloadModel.name} · On-Device</Text>
 
         {phase === 'checking' && <Status text="Checking model…" />}
 
         {phase === 'downloading' && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>{downloadTitle || `Downloading ${activeModel.name}`}</Text>
+            <View style={styles.downloadCardHeader}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.cardTitle}>{downloadTitle || `Downloading ${activeDownloadModel.name}`}</Text>
+                <Text style={styles.downloadCardSubtitle}>
+                  {activeDownloadModel.tag} · Works 100% offline
+                </Text>
+              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cardMinimizeIconBtn,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => setDownloadMinimized(true)}
+                hitSlop={8}
+                accessibilityLabel="Minimize Download">
+                <ChevronDown size={22} color={C.textSecondary} />
+              </Pressable>
+            </View>
+
             <View style={styles.barTrack}>
               <View
                 style={[
@@ -1947,12 +2026,34 @@ function ChatScreen() {
               <Text style={styles.progressBytesText}>
                 {formatDetailedSize(downloaded)} /{' '}
                 {formatDetailedSize(
-                  downloadTitle.includes('Vision Eyes')
-                    ? activeModel.mmprojSize || activeModel.size
-                    : activeModel.size,
+                  downloadTotal ||
+                  (downloadTitle.includes('Vision Eyes')
+                    ? activeDownloadModel.mmprojSize || activeDownloadModel.size
+                    : activeDownloadModel.size),
                 )}
               </Text>
             </View>
+
+            {/* Detailed Done & Remaining in MB */}
+            {(() => {
+              const currentTotal =
+                downloadTotal ||
+                (downloadTitle.includes('Vision Eyes')
+                  ? activeDownloadModel.mmprojSize || activeDownloadModel.size
+                  : activeDownloadModel.size);
+              const currentRemaining = Math.max(0, currentTotal - downloaded);
+              return (
+                <View style={styles.mbDetailsRow}>
+                  <Text style={styles.mbDetailsText}>
+                    Done: <Text style={styles.mbDetailsBold}>{formatMBOnly(downloaded)}</Text>
+                  </Text>
+                  <Text style={styles.mbDetailsDivider}>•</Text>
+                  <Text style={styles.mbDetailsText}>
+                    Remaining: <Text style={styles.mbDetailsBold}>{formatMBOnly(currentRemaining)}</Text>
+                  </Text>
+                </View>
+              );
+            })()}
 
             {(downloadSpeed !== '' || downloadEta !== '') && (
               <View style={styles.speedEtaRow}>
@@ -1971,17 +2072,29 @@ function ChatScreen() {
             <Text style={styles.hint}>
               Keep the app open and Wi-Fi on. Once downloaded, it works 100% offline forever.
             </Text>
-            <ActivityIndicator color={C.accent} style={{ marginTop: 14 }} />
+            <ActivityIndicator color={C.accent} style={{ marginTop: 10 }} />
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.cancelDownloadBtn,
-                pressed && styles.pressed,
-              ]}
-              onPress={cancelDownload}>
-              <X size={15} color={C.danger} />
-              <Text style={styles.cancelDownloadText}>Cancel Download</Text>
-            </Pressable>
+            <View style={styles.downloadBtnGroup}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.minimizeDownloadBtn,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => setDownloadMinimized(true)}>
+                <ChevronDown size={16} color="#FFFFFF" />
+                <Text style={styles.minimizeDownloadText}>Minimize to Background</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cancelDownloadBtn,
+                  pressed && styles.pressed,
+                ]}
+                onPress={cancelDownload}>
+                <X size={15} color={C.danger} />
+                <Text style={styles.cancelDownloadText}>Cancel Download</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -2138,6 +2251,65 @@ function ChatScreen() {
         </View>
       </View>
 
+      {/* Mini Download Banner when minimized */}
+      {(isDownloadingRef.current || downloadingModelId !== null) && downloadMinimized && (
+        <View style={styles.miniDownloadBanner}>
+          <View style={styles.miniDownloadLeft}>
+            <View style={styles.miniDownloadIconBadge}>
+              <Download size={13} color={C.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.miniDownloadTitleRow}>
+                <Text style={styles.miniDownloadTitle} numberOfLines={1}>
+                  {downloadTitle || `Downloading ${activeDownloadModel.name}`}
+                </Text>
+                <Text style={styles.miniDownloadPercent}>
+                  {(progress * 100).toFixed(0)}%
+                </Text>
+              </View>
+              <Text style={styles.miniDownloadStats} numberOfLines={1}>
+                Done: {formatMBOnly(downloaded)} · Left:{' '}
+                {formatMBOnly(
+                  Math.max(
+                    0,
+                    (downloadTotal ||
+                      (downloadTitle.includes('Vision Eyes')
+                        ? activeDownloadModel.mmprojSize || activeDownloadModel.size
+                        : activeDownloadModel.size)) - downloaded,
+                  ),
+                )}
+                {downloadSpeed ? ` · ${downloadSpeed}` : ''}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.miniDownloadActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.miniDownloadBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => setDownloadMinimized(false)}
+              hitSlop={6}>
+              <Maximize2 size={12} color={C.accent} />
+              <Text style={styles.miniDownloadBtnText}>View</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.miniDownloadSettingsBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => {
+                setSettingsTab('downloads');
+                setSettingsOpen(true);
+              }}
+              hitSlop={6}>
+              <Settings size={13} color={C.textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       {/* Chat Messages */}
       <FlatList
         ref={listRef}
@@ -2178,42 +2350,100 @@ function ChatScreen() {
           }
         }}
         ListEmptyComponent={
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>What can I help you build today?</Text>
-            <Text style={styles.emptySubtitle}>
-              Select an action suggestion or type anything below:
-            </Text>
+          phase !== 'ready' && !ctxRef.current && (isDownloadingRef.current || downloadingModelId !== null) ? (
+            <View style={styles.emptyCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <ActivityIndicator size="small" color={C.accent} />
+                <Text style={styles.emptyTitle}>Downloading {activeDownloadModel.name}</Text>
+              </View>
+              <Text style={styles.emptySubtitle}>
+                Model is downloading in the background ({(progress * 100).toFixed(1)}%).
+                Once completed, offline AI chat will activate automatically.
+              </Text>
 
-            <View style={styles.chipsGrid}>
-              <Pressable
-                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
-                onPress={() => setInput('Explain this code:\n')}>
-                <Code2 size={15} color={C.accent} />
-                <Text style={styles.chipText}>Explain Code</Text>
-              </Pressable>
+              <View style={[styles.barTrack, { marginTop: 12, marginBottom: 8 }]}>
+                <View
+                  style={[
+                    styles.barFill,
+                    { width: `${Math.max(2, Math.min(100, progress * 100)).toFixed(1)}%` },
+                  ]}
+                />
+              </View>
 
-              <Pressable
-                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
-                onPress={() => setInput('Summarize the key points of:\n')}>
-                <FileText size={15} color={C.accent} />
-                <Text style={styles.chipText}>Summarize</Text>
-              </Pressable>
+              <View style={styles.progressStatsRow}>
+                <Text style={styles.progressPercentText}>{(progress * 100).toFixed(1)}%</Text>
+                <Text style={styles.progressBytesText}>
+                  Done: {formatMBOnly(downloaded)} · Remaining:{' '}
+                  {formatMBOnly(
+                    Math.max(
+                      0,
+                      (downloadTotal ||
+                        (downloadTitle.includes('Vision Eyes')
+                          ? activeDownloadModel.mmprojSize || activeDownloadModel.size
+                          : activeDownloadModel.size)) - downloaded,
+                    ),
+                  )}
+                </Text>
+              </View>
 
-              <Pressable
-                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
-                onPress={() => setInput('Draft a professional email about:\n')}>
-                <Mail size={15} color={C.accent} />
-                <Text style={styles.chipText}>Write Email</Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
-                onPress={() => setInput('Brainstorm creative ideas for:\n')}>
-                <Lightbulb size={15} color={C.accent} />
-                <Text style={styles.chipText}>Brainstorm</Text>
-              </Pressable>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                <Pressable
+                  style={({ pressed }) => [styles.button, { flex: 1 }, pressed && styles.pressed]}
+                  onPress={() => setDownloadMinimized(false)}>
+                  <Text style={styles.buttonText}>Expand Popup</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.button,
+                    { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => {
+                    setSettingsTab('downloads');
+                    setSettingsOpen(true);
+                  }}>
+                  <Text style={[styles.buttonText, { color: C.text }]}>Open Downloads</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>What can I help you build today?</Text>
+              <Text style={styles.emptySubtitle}>
+                Select an action suggestion or type anything below:
+              </Text>
+
+              <View style={styles.chipsGrid}>
+                <Pressable
+                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                  onPress={() => setInput('Explain this code:\n')}>
+                  <Code2 size={15} color={C.accent} />
+                  <Text style={styles.chipText}>Explain Code</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                  onPress={() => setInput('Summarize the key points of:\n')}>
+                  <FileText size={15} color={C.accent} />
+                  <Text style={styles.chipText}>Summarize</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                  onPress={() => setInput('Draft a professional email about:\n')}>
+                  <Mail size={15} color={C.accent} />
+                  <Text style={styles.chipText}>Write Email</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                  onPress={() => setInput('Brainstorm creative ideas for:\n')}>
+                  <Lightbulb size={15} color={C.accent} />
+                  <Text style={styles.chipText}>Brainstorm</Text>
+                </Pressable>
+              </View>
+            </View>
+          )
         }
         renderItem={({ item }) => {
           const isUser = item.role === 'user';
@@ -2387,6 +2617,8 @@ function ChatScreen() {
             {attachment.type === 'image' && activeModel.category !== 'vision' && (
               (() => {
                 const downloadedVision = AVAILABLE_MODELS.find(
+                  m => m.id === activeVisionModelId && downloadedModels[m.id],
+                ) || AVAILABLE_MODELS.find(
                   m => m.category === 'vision' && downloadedModels[m.id],
                 );
                 return downloadedVision ? (
@@ -2395,7 +2627,9 @@ function ChatScreen() {
                     onPress={() => switchModel(downloadedVision.id)}
                     hitSlop={4}>
                     <Camera size={11} color="#FFFFFF" />
-                    <Text style={styles.quickVisionBtnText}>Switch to Vision AI</Text>
+                    <Text style={styles.quickVisionBtnText}>
+                      Switch to {downloadedVision.name.replace('Vision Master', 'Vision').replace('Vision Fast', 'Vision')}
+                    </Text>
                   </Pressable>
                 ) : (
                   <Pressable
@@ -2586,11 +2820,17 @@ function ChatScreen() {
               <View style={styles.modalTitleRow}>
                 {settingsTab === 'models' ? (
                   <Cpu size={18} color={C.accent} />
+                ) : settingsTab === 'downloads' ? (
+                  <HardDrive size={18} color={C.accent} />
                 ) : (
                   <Settings size={18} color={C.accent} />
                 )}
                 <Text style={styles.modalTitle}>
-                  {settingsTab === 'models' ? 'On-Device AI Models' : 'Personalization & Persona'}
+                  {settingsTab === 'models'
+                    ? 'On-Device AI Models'
+                    : settingsTab === 'downloads'
+                    ? 'Downloads & Active Brains'
+                    : 'Personalization & Persona'}
                 </Text>
               </View>
               <View style={styles.modalHeaderActions}>
@@ -2618,7 +2858,7 @@ function ChatScreen() {
               </View>
             </View>
 
-            {/* Segmented Tab Bar */}
+            {/* Segmented Tab Bar - 3 Tabs */}
             <View style={styles.tabContainer}>
               <Pressable
                 style={[
@@ -2630,7 +2870,7 @@ function ChatScreen() {
                   setSettingsTab('models');
                 }}>
                 <Cpu
-                  size={15}
+                  size={14}
                   color={settingsTab === 'models' ? C.accent : C.textSecondary}
                 />
                 <Text
@@ -2638,8 +2878,34 @@ function ChatScreen() {
                     styles.tabButtonText,
                     settingsTab === 'models' && styles.tabButtonTextActive,
                   ]}>
-                  Model Center
+                  Model Hub
                 </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.tabButton,
+                  settingsTab === 'downloads' && styles.tabButtonActive,
+                ]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setSettingsTab('downloads');
+                  refreshDownloadedStatus();
+                }}>
+                <HardDrive
+                  size={14}
+                  color={settingsTab === 'downloads' ? C.accent : C.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    settingsTab === 'downloads' && styles.tabButtonTextActive,
+                  ]}>
+                  Downloads
+                </Text>
+                {(isDownloadingRef.current || downloadingModelId !== null) && (
+                  <View style={styles.tabActiveDot} />
+                )}
               </Pressable>
 
               <Pressable
@@ -2647,9 +2913,12 @@ function ChatScreen() {
                   styles.tabButton,
                   settingsTab === 'persona' && styles.tabButtonActive,
                 ]}
-                onPress={() => setSettingsTab('persona')}>
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setSettingsTab('persona');
+                }}>
                 <Settings
-                  size={15}
+                  size={14}
                   color={settingsTab === 'persona' ? C.accent : C.textSecondary}
                 />
                 <Text
@@ -2657,7 +2926,7 @@ function ChatScreen() {
                     styles.tabButtonText,
                     settingsTab === 'persona' && styles.tabButtonTextActive,
                   ]}>
-                  Persona & Prompt
+                  Persona
                 </Text>
               </Pressable>
             </View>
@@ -2722,6 +2991,9 @@ function ChatScreen() {
                       const isSelected = selectedModelId === m.id;
                       const isDownloaded = downloadedModels[m.id] === true;
                       const isActive = isSelected && phase === 'ready';
+                      const isCurrentlyDownloading =
+                        (isDownloadingRef.current || downloadingModelId !== null) &&
+                        (m.id === downloadingModelId || m.id === activeDownloadModelIdRef.current);
 
                       return (
                         <View
@@ -2759,7 +3031,14 @@ function ChatScreen() {
 
                           {/* Status badge & action buttons */}
                           <View style={styles.modelActionRow}>
-                            {isActive ? (
+                            {isCurrentlyDownloading ? (
+                              <View style={styles.modelDownloadingBadge}>
+                                <ActivityIndicator size="small" color={C.accent} style={{ transform: [{ scale: 0.7 }] }} />
+                                <Text style={styles.modelDownloadingBadgeText}>
+                                  Downloading {(progress * 100).toFixed(0)}%
+                                </Text>
+                              </View>
+                            ) : isActive ? (
                               <View style={styles.modelActiveBadge}>
                                 <Check size={12} color="#059669" />
                                 <Text style={styles.modelActiveBadgeText}>Active & Running</Text>
@@ -2776,7 +3055,17 @@ function ChatScreen() {
                             )}
 
                             <View style={styles.modelBtnGroup}>
-                              {isDownloaded && (
+                              {isCurrentlyDownloading ? (
+                                <Pressable
+                                  style={({ pressed }) => [
+                                    styles.modelSwitchBtn,
+                                    pressed && styles.pressed,
+                                  ]}
+                                  onPress={() => setSettingsTab('downloads')}>
+                                  <HardDrive size={12} color="#FFFFFF" />
+                                  <Text style={styles.modelSwitchBtnText}>View Progress</Text>
+                                </Pressable>
+                              ) : isDownloaded ? (
                                 <>
                                   {!isActive && (
                                     <Pressable
@@ -2800,9 +3089,7 @@ function ChatScreen() {
                                     <Trash2 size={13} color={C.danger} />
                                   </Pressable>
                                 </>
-                              )}
-
-                              {!isDownloaded && (
+                              ) : (
                                 <Pressable
                                   style={({ pressed }) => [
                                     styles.modelDownloadBtn,
@@ -2820,6 +3107,368 @@ function ChatScreen() {
                         </View>
                       );
                     })}
+                  </View>
+                </View>
+              ) : settingsTab === 'downloads' ? (
+                /* Tab 2: Downloads & Active Models */
+                <View style={{ gap: 16, paddingBottom: 24 }}>
+                  {/* Current Download Progress Card */}
+                  <View style={styles.downloadsSectionCard}>
+                    <View style={styles.downloadsSectionHeaderRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Download size={16} color={C.accent} />
+                        <Text style={styles.downloadsSectionTitle}>Current Download Progress</Text>
+                      </View>
+                      {(isDownloadingRef.current || downloadingModelId !== null) && (
+                        <View style={styles.downloadingLiveBadge}>
+                          <ActivityIndicator size="small" color={C.accent} style={{ transform: [{ scale: 0.65 }] }} />
+                          <Text style={styles.downloadingLiveBadgeText}>Live</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {(isDownloadingRef.current || downloadingModelId !== null) ? (
+                      <View style={{ gap: 10, marginTop: 4 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={styles.dlModelName}>
+                              {activeDownloadModel.name}
+                            </Text>
+                            <Text style={styles.dlPartTitle}>
+                              {downloadTitle || (activeDownloadModel.category === 'vision' ? 'Downloading Model Weights (Brain 1/2)' : 'Downloading Model Weights')}
+                            </Text>
+                          </View>
+                          <View style={[styles.modelTag, { backgroundColor: activeDownloadModel.category === 'vision' ? '#F3E8FF' : C.accentSoft }]}>
+                            <Text style={[styles.modelTagText, { color: activeDownloadModel.category === 'vision' ? '#7C3AED' : C.accent }]}>
+                              {activeDownloadModel.category === 'vision' ? 'Vision AI' : 'Text AI'}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Progress Bar */}
+                        <View style={styles.barTrack}>
+                          <View
+                            style={[
+                              styles.barFill,
+                              { width: `${Math.max(2, Math.min(100, progress * 100)).toFixed(1)}%` },
+                            ]}
+                          />
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={styles.progressPercentText}>
+                            {(progress * 100).toFixed(1)}%
+                          </Text>
+                          {(downloadSpeed || downloadEta) && (
+                            <View style={styles.speedEtaRow}>
+                              {downloadSpeed ? (
+                                <View style={styles.speedBadge}>
+                                  <Zap size={11} color={C.accent} />
+                                  <Text style={styles.speedBadgeText}>{downloadSpeed}</Text>
+                                </View>
+                              ) : null}
+                              {downloadEta ? (
+                                <Text style={styles.etaText}>{downloadEta}</Text>
+                              ) : null}
+                            </View>
+                          )}
+                        </View>
+
+                        {/* MB Done & MB Remaining Stat Cards */}
+                        {(() => {
+                          const currentTotal =
+                            downloadTotal ||
+                            (downloadTitle.includes('Vision Eyes')
+                              ? activeDownloadModel.mmprojSize || activeDownloadModel.size
+                              : activeDownloadModel.size);
+                          const currentRemaining = Math.max(0, currentTotal - downloaded);
+                          return (
+                            <View style={styles.statsCardGrid}>
+                              <View style={styles.statBox}>
+                                <Text style={styles.statBoxLabel}>MB Done</Text>
+                                <Text style={styles.statBoxValue}>{formatMBOnly(downloaded)}</Text>
+                                <Text style={styles.statBoxSub}>({formatDetailedSize(downloaded)})</Text>
+                              </View>
+
+                              <View style={styles.statBox}>
+                                <Text style={styles.statBoxLabel}>MB Remaining</Text>
+                                <Text style={[styles.statBoxValue, { color: '#D97706' }]}>
+                                  {formatMBOnly(currentRemaining)}
+                                </Text>
+                                <Text style={styles.statBoxSub}>({formatDetailedSize(currentRemaining)})</Text>
+                              </View>
+
+                              <View style={styles.statBox}>
+                                <Text style={styles.statBoxLabel}>Total</Text>
+                                <Text style={styles.statBoxValue}>{formatMBOnly(currentTotal)}</Text>
+                                <Text style={styles.statBoxSub}>({formatDetailedSize(currentTotal)})</Text>
+                              </View>
+                            </View>
+                          );
+                        })()}
+
+                        {/* Actions */}
+                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.downloadsActionBtn,
+                              { flex: 1, backgroundColor: C.accent },
+                              pressed && styles.pressed,
+                            ]}
+                            onPress={() => {
+                              setSettingsOpen(false);
+                              setDownloadMinimized(false);
+                            }}>
+                            <Maximize2 size={13} color="#FFFFFF" />
+                            <Text style={[styles.downloadsActionBtnText, { color: '#FFFFFF' }]}>
+                              Maximize Popup
+                            </Text>
+                          </Pressable>
+
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.downloadsActionBtn,
+                              { flex: 1, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FEE2E2' },
+                              pressed && styles.pressed,
+                            ]}
+                            onPress={cancelDownload}>
+                            <X size={13} color={C.danger} />
+                            <Text style={[styles.downloadsActionBtnText, { color: C.danger }]}>
+                              Cancel Download
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.noDownloadContainer}>
+                        <Check size={20} color="#059669" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.noDownloadTitle}>No active downloads</Text>
+                          <Text style={styles.noDownloadDesc}>
+                            All downloaded models are stored locally on your device for 100% offline use.
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* 2. Downloaded Text Models (Active selection) */}
+                  <View style={styles.downloadsSectionCard}>
+                    <View style={styles.downloadsSectionHeaderRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Brain size={16} color={C.accent} />
+                        <Text style={styles.downloadsSectionTitle}>Downloaded Text Models</Text>
+                      </View>
+                      <View style={styles.countBadge}>
+                        <Text style={styles.countBadgeText}>
+                          {AVAILABLE_MODELS.filter(m => m.category === 'text' && downloadedModels[m.id]).length} downloaded
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.downloadsSectionSubtitle}>
+                      Select which text model is currently active for offline conversation & reasoning.
+                    </Text>
+
+                    {AVAILABLE_MODELS.filter(m => m.category === 'text' && downloadedModels[m.id]).length === 0 ? (
+                      <View style={styles.emptyModelCategoryCard}>
+                        <Text style={styles.emptyModelCategoryText}>
+                          No text models downloaded yet.
+                        </Text>
+                        <Pressable
+                          style={styles.browseModelsChip}
+                          onPress={() => {
+                            setModelCategoryFilter('text');
+                            setSettingsTab('models');
+                          }}>
+                          <Plus size={12} color={C.accent} />
+                          <Text style={styles.browseModelsChipText}>Download Text Model</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={{ gap: 8, marginTop: 4 }}>
+                        {AVAILABLE_MODELS.filter(m => m.category === 'text' && downloadedModels[m.id]).map(m => {
+                          const isCurrentlyRunning = m.id === selectedModelId && phase === 'ready';
+                          const isSelectedText = m.id === activeTextModelId;
+
+                          return (
+                            <View
+                              key={m.id}
+                              style={[
+                                styles.downloadedItemCard,
+                                isCurrentlyRunning && styles.downloadedItemCardActive,
+                              ]}>
+                              <View style={styles.downloadedItemTop}>
+                                <View style={{ flex: 1, marginRight: 8 }}>
+                                  <Text style={[styles.downloadedItemName, isCurrentlyRunning && { color: C.accent }]}>
+                                    {m.name}
+                                  </Text>
+                                  <Text style={styles.downloadedItemDesc} numberOfLines={2}>
+                                    {m.description}
+                                  </Text>
+                                </View>
+                                <View style={styles.modelTag}>
+                                  <Text style={styles.modelTagText}>{formatSize(m.size)}</Text>
+                                </View>
+                              </View>
+
+                              <View style={styles.downloadedItemBottom}>
+                                {isCurrentlyRunning ? (
+                                  <View style={styles.modelActiveBadge}>
+                                    <Check size={12} color="#059669" />
+                                    <Text style={styles.modelActiveBadgeText}>Active in Chat</Text>
+                                  </View>
+                                ) : isSelectedText ? (
+                                  <View style={styles.modelSelectedBadge}>
+                                    <Check size={12} color={C.accent} />
+                                    <Text style={styles.modelSelectedBadgeText}>Selected for Text</Text>
+                                  </View>
+                                ) : (
+                                  <View style={styles.modelCachedBadge}>
+                                    <HardDrive size={11} color={C.textSecondary} />
+                                    <Text style={styles.modelCachedBadgeText}>Ready Offline</Text>
+                                  </View>
+                                )}
+
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  {!isCurrentlyRunning && (
+                                    <Pressable
+                                      style={({ pressed }) => [
+                                        styles.activateBtn,
+                                        pressed && styles.pressed,
+                                      ]}
+                                      onPress={() => activateModel(m.id, 'text')}>
+                                      <Zap size={11} color="#FFFFFF" />
+                                      <Text style={styles.activateBtnText}>Activate</Text>
+                                    </Pressable>
+                                  )}
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelDeleteBtn,
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => deleteModel(m)}
+                                    hitSlop={6}
+                                    accessibilityLabel={`Delete ${m.name}`}>
+                                    <Trash2 size={13} color={C.danger} />
+                                  </Pressable>
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+
+                  {/* 3. Downloaded Vision Models (Active selection) */}
+                  <View style={styles.downloadsSectionCard}>
+                    <View style={styles.downloadsSectionHeaderRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Camera size={16} color="#7C3AED" />
+                        <Text style={styles.downloadsSectionTitle}>Downloaded Vision Models</Text>
+                      </View>
+                      <View style={[styles.countBadge, { backgroundColor: '#F3E8FF' }]}>
+                        <Text style={[styles.countBadgeText, { color: '#7C3AED' }]}>
+                          {AVAILABLE_MODELS.filter(m => m.category === 'vision' && downloadedModels[m.id]).length} downloaded
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.downloadsSectionSubtitle}>
+                      Select which vision model is currently active for photo analysis & multimodal recognition.
+                    </Text>
+
+                    {AVAILABLE_MODELS.filter(m => m.category === 'vision' && downloadedModels[m.id]).length === 0 ? (
+                      <View style={styles.emptyModelCategoryCard}>
+                        <Text style={styles.emptyModelCategoryText}>
+                          No vision models downloaded yet.
+                        </Text>
+                        <Pressable
+                          style={[styles.browseModelsChip, { borderColor: '#DDD6FE', backgroundColor: '#F5F3FF' }]}
+                          onPress={() => {
+                            setModelCategoryFilter('vision');
+                            setSettingsTab('models');
+                          }}>
+                          <Plus size={12} color="#7C3AED" />
+                          <Text style={[styles.browseModelsChipText, { color: '#7C3AED' }]}>Download Vision Model</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={{ gap: 8, marginTop: 4 }}>
+                        {AVAILABLE_MODELS.filter(m => m.category === 'vision' && downloadedModels[m.id]).map(m => {
+                          const isCurrentlyRunning = m.id === selectedModelId && phase === 'ready';
+                          const isSelectedVision = m.id === activeVisionModelId;
+
+                          return (
+                            <View
+                              key={m.id}
+                              style={[
+                                styles.downloadedItemCard,
+                                isCurrentlyRunning && [styles.downloadedItemCardActive, { borderColor: '#7C3AED', backgroundColor: '#FAF5FF' }],
+                              ]}>
+                              <View style={styles.downloadedItemTop}>
+                                <View style={{ flex: 1, marginRight: 8 }}>
+                                  <Text style={[styles.downloadedItemName, isCurrentlyRunning && { color: '#7C3AED' }]}>
+                                    {m.name}
+                                  </Text>
+                                  <Text style={styles.downloadedItemDesc} numberOfLines={2}>
+                                    {m.description}
+                                  </Text>
+                                </View>
+                                <View style={[styles.modelTag, { backgroundColor: '#F3E8FF' }]}>
+                                  <Text style={[styles.modelTagText, { color: '#7C3AED' }]}>
+                                    {formatSize(m.size + (m.mmprojSize || 0))}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              <View style={styles.downloadedItemBottom}>
+                                {isCurrentlyRunning ? (
+                                  <View style={styles.modelActiveBadge}>
+                                    <Check size={12} color="#059669" />
+                                    <Text style={styles.modelActiveBadgeText}>Active in Chat</Text>
+                                  </View>
+                                ) : isSelectedVision ? (
+                                  <View style={[styles.modelSelectedBadge, { backgroundColor: '#F3E8FF' }]}>
+                                    <Check size={12} color="#7C3AED" />
+                                    <Text style={[styles.modelSelectedBadgeText, { color: '#7C3AED' }]}>Selected for Vision</Text>
+                                  </View>
+                                ) : (
+                                  <View style={styles.modelCachedBadge}>
+                                    <HardDrive size={11} color={C.textSecondary} />
+                                    <Text style={styles.modelCachedBadgeText}>Ready Offline</Text>
+                                  </View>
+                                )}
+
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  {!isCurrentlyRunning && (
+                                    <Pressable
+                                      style={({ pressed }) => [
+                                        styles.activateBtn,
+                                        { backgroundColor: '#7C3AED' },
+                                        pressed && styles.pressed,
+                                      ]}
+                                      onPress={() => activateModel(m.id, 'vision')}>
+                                      <Zap size={11} color="#FFFFFF" />
+                                      <Text style={styles.activateBtnText}>Activate</Text>
+                                    </Pressable>
+                                  )}
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelDeleteBtn,
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => deleteModel(m)}
+                                    hitSlop={6}
+                                    accessibilityLabel={`Delete ${m.name}`}>
+                                    <Trash2 size={13} color={C.danger} />
+                                  </Pressable>
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
                   </View>
                 </View>
               ) : (
@@ -3111,6 +3760,29 @@ function ChatScreen() {
                   <Text style={styles.drawerFooterLabel}>Model Center</Text>
                   <Text style={styles.drawerFooterSub}>
                     {activeModel.name.split(' ')[1] || activeModel.name} · {formatSize(activeModel.size)}
+                  </Text>
+                </View>
+                <ChevronRight size={16} color={C.muted} />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.drawerFooterItem,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setDrawerOpen(false);
+                  setSettingsTab('downloads');
+                  setSettingsOpen(true);
+                  refreshDownloadedStatus();
+                }}>
+                <HardDrive size={18} color={C.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.drawerFooterLabel}>Downloads & Active Brains</Text>
+                  <Text style={styles.drawerFooterSub}>
+                    {(isDownloadingRef.current || downloadingModelId !== null)
+                      ? `Downloading ${(progress * 100).toFixed(0)}%`
+                      : 'Manage text & vision models'}
                   </Text>
                 </View>
                 <ChevronRight size={16} color={C.muted} />
@@ -4418,6 +5090,405 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: C.muted,
     marginTop: 1,
+  },
+
+  // Download Card Header & Minimize
+  downloadCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  downloadCardSubtitle: {
+    fontSize: 12,
+    color: C.textSecondary,
+    marginTop: 2,
+  },
+  cardMinimizeIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  mbDetailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: C.surface2,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  mbDetailsText: {
+    fontSize: 13,
+    color: C.textSecondary,
+  },
+  mbDetailsBold: {
+    fontWeight: '800',
+    color: C.text,
+  },
+  mbDetailsDivider: {
+    color: C.muted,
+  },
+  downloadBtnGroup: {
+    width: '100%',
+    gap: 10,
+    marginTop: 14,
+  },
+  minimizeDownloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: C.accent,
+  },
+  minimizeDownloadText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // Mini Download Banner under Header
+  miniDownloadBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    backgroundColor: '#EEF2FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E7FF',
+    gap: 10,
+  },
+  miniDownloadLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  miniDownloadIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  miniDownloadTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  miniDownloadTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.text,
+    flex: 1,
+    marginRight: 6,
+  },
+  miniDownloadPercent: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.accent,
+  },
+  miniDownloadStats: {
+    fontSize: 11,
+    color: C.textSecondary,
+    marginTop: 1,
+  },
+  miniDownloadActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  miniDownloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  miniDownloadBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  miniDownloadSettingsBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Downloads Tab in Settings Modal
+  tabActiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.accent,
+    marginLeft: 2,
+  },
+  downloadsSectionCard: {
+    backgroundColor: C.surface2,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    gap: 10,
+  },
+  downloadsSectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  downloadsSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: C.text,
+  },
+  downloadsSectionSubtitle: {
+    fontSize: 12,
+    color: C.textSecondary,
+    lineHeight: 16,
+    marginTop: -2,
+    marginBottom: 4,
+  },
+  downloadingLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  downloadingLiveBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  dlModelName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: C.text,
+  },
+  dlPartTitle: {
+    fontSize: 12,
+    color: C.textSecondary,
+    marginTop: 2,
+  },
+  statsCardGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  statBox: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 8,
+    alignItems: 'center',
+  },
+  statBoxLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: C.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  statBoxValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.accent,
+    marginTop: 2,
+  },
+  statBoxSub: {
+    fontSize: 10,
+    color: C.muted,
+    marginTop: 1,
+  },
+  downloadsActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  downloadsActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  noDownloadContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 6,
+  },
+  noDownloadTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.text,
+  },
+  noDownloadDesc: {
+    fontSize: 12,
+    color: C.textSecondary,
+    marginTop: 1,
+  },
+  countBadge: {
+    backgroundColor: C.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  emptyModelCategoryCard: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  emptyModelCategoryText: {
+    fontSize: 12,
+    color: C.muted,
+  },
+  browseModelsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: C.accentSoft,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  browseModelsChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  downloadedItemCard: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+  },
+  downloadedItemCardActive: {
+    borderColor: '#10B981',
+    backgroundColor: '#F0FDF4',
+  },
+  downloadedItemTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  downloadedItemName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.text,
+  },
+  downloadedItemDesc: {
+    fontSize: 11,
+    color: C.textSecondary,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  downloadedItemBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  modelSelectedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  modelSelectedBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  modelCachedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  modelCachedBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: C.textSecondary,
+  },
+  activateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  activateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  modelDownloadingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  modelDownloadingBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
   },
 });
 
