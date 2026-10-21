@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   NativeModules,
+  PermissionsAndroid,
   Platform,
   Pressable,
   SafeAreaView,
@@ -215,6 +216,60 @@ async function extractTextFromImage(uri: string): Promise<string> {
   return '';
 }
 
+// ---- Offline PDF Text Extraction Engine -----------------------------------
+async function extractTextFromPdf(uri: string): Promise<string> {
+  // 1. Try Native Apple PDFKit & Vision OCR / Android PDF extractor
+  try {
+    const { NativeOCR } = NativeModules;
+    if (NativeOCR && typeof NativeOCR.extractPdfText === 'function') {
+      const nativeText = await NativeOCR.extractPdfText(uri);
+      if (nativeText && typeof nativeText === 'string' && nativeText.trim().length > 0) {
+        return nativeText.trim();
+      }
+    }
+  } catch (err) {
+    // Native module not linked or failed
+  }
+
+  // 2. Offline fallback: read raw file and extract text strings
+  try {
+    let cleanUri = uri;
+    if (Platform.OS === 'ios' && cleanUri.startsWith('file://')) {
+      cleanUri = cleanUri.replace('file://', '');
+    }
+    const raw = await RNFS.readFile(cleanUri, 'ascii');
+    // Match uncompressed PDF text operators: (text) Tj or [(t)(e)(x)(t)] TJ
+    const matches = raw.match(/\((.*?)\)\s*Tj/g) || raw.match(/\[(.*?)\]\s*TJ/g);
+    if (matches && matches.length > 0) {
+      const text = matches
+        .map(m => m.replace(/[\(\)\[\]]|Tj|TJ/g, '').trim())
+        .filter(Boolean)
+        .join(' ');
+      if (text.length > 20) return text;
+    }
+
+    // Extract readable ascii strings of length >= 5
+    const textBlocks = raw.match(/[A-Za-z0-9\s.,!?:;'"()\/\-]{5,}/g);
+    if (textBlocks && textBlocks.length > 0) {
+      const filtered = textBlocks.filter(
+        b =>
+          !b.includes('/Filter') &&
+          !b.includes('/Length') &&
+          !b.includes('/Type') &&
+          !b.includes('/Font') &&
+          !b.includes('/MediaBox')
+      );
+      if (filtered.length > 0) {
+        return filtered.join('\n').substring(0, 30000);
+      }
+    }
+  } catch (e) {
+    // raw read failed
+  }
+
+  return '';
+}
+
 // ---- Design tokens (Option 2: Modern Apple Light Theme) -------------------
 const C = {
   bg: '#F3F4F6', // Soft crisp platinum canvas (Expo Go style)
@@ -296,6 +351,7 @@ function ChatScreen() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const isPickingMediaRef = useRef(false);
 
   // Model hub: track which models are downloaded on device storage
   const [downloadedModels, setDownloadedModels] = useState<Record<string, boolean>>({});
@@ -569,6 +625,12 @@ function ChatScreen() {
       } catch {}
       downloadJobIdRef.current = null;
     }
+    const { DownloadNotificationModule } = NativeModules;
+    if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
+      try {
+        await DownloadNotificationModule.stopForegroundService();
+      } catch {}
+    }
     const model = activeModel;
     const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
     try {
@@ -586,6 +648,7 @@ function ChatScreen() {
 
   // Model preparation and switching (Protected against duplicate concurrent triggers)
   const prepareModel = useCallback(async (targetModelId?: string) => {
+    const { DownloadNotificationModule } = NativeModules;
     const modelId = targetModelId || selectedModelIdRef.current;
     const model =
       AVAILABLE_MODELS.find(m => m.id === modelId) || AVAILABLE_MODELS[0];
@@ -603,6 +666,11 @@ function ChatScreen() {
         RNFS.stopDownload(downloadJobIdRef.current);
       } catch {}
       downloadJobIdRef.current = null;
+      if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
+        try {
+          await DownloadNotificationModule.stopForegroundService();
+        } catch {}
+      }
     }
 
     try {
@@ -632,6 +700,36 @@ function ChatScreen() {
           await RNFS.unlink(tempPath);
         }
 
+        // On Android 13+, request notification permission
+        if (Platform.OS === 'android' && Platform.Version >= 33) {
+          try {
+            await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+            );
+          } catch {}
+        }
+
+        // Start Foreground Service with WakeLock to allow downloading while screen is OFF
+        if (Platform.OS === 'android' && DownloadNotificationModule?.startForegroundService) {
+          try {
+            await DownloadNotificationModule.startForegroundService(
+              `Downloading ${model.name}`,
+              '',
+              'Starting download...',
+              '0 MB',
+              formatSize(model.size),
+              formatSize(model.size),
+              0,
+            );
+          } catch (err) {
+            console.warn('Could not start download foreground service:', err);
+          }
+        }
+
+        let lastNotifyTime = 0;
+        let currentSpeedStr = '';
+        let currentEtaStr = '';
+
         const job = RNFS.downloadFile({
           fromUrl: model.url,
           toFile: tempPath,
@@ -657,16 +755,37 @@ function ChatScreen() {
               const bytesDelta = written - speedCalcRef.current.lastBytes;
               if (bytesDelta > 0) {
                 const spd = bytesDelta / timeDelta;
-                setDownloadSpeed(`${(spd / (1024 * 1024)).toFixed(1)} MB/s`);
+                currentSpeedStr = `${(spd / (1024 * 1024)).toFixed(1)} MB/s`;
+                setDownloadSpeed(currentSpeedStr);
                 const remaining = Math.max(0, total - written);
                 const secs = Math.round(remaining / spd);
                 if (secs > 60) {
-                  setDownloadEta(`~${Math.ceil(secs / 60)} min left`);
+                  currentEtaStr = `~${Math.ceil(secs / 60)} min left`;
                 } else {
-                  setDownloadEta(`~${secs}s left`);
+                  currentEtaStr = `~${secs}s left`;
                 }
+                setDownloadEta(currentEtaStr);
               }
               speedCalcRef.current = { lastBytes: written, lastTime: now };
+            }
+
+            // Update Android persistent notification in status bar (throttled to once per second)
+            if (now - lastNotifyTime >= 1000) {
+              lastNotifyTime = now;
+              const percent = Math.min(100, Math.max(0, Math.round((written / total) * 100)));
+              const leftBytes = Math.max(0, total - written);
+
+              if (Platform.OS === 'android' && DownloadNotificationModule?.updateProgress) {
+                DownloadNotificationModule.updateProgress(
+                  `Downloading ${model.name}`,
+                  currentSpeedStr,
+                  currentEtaStr,
+                  formatDetailedSize(written),
+                  formatSize(total),
+                  formatDetailedSize(leftBytes),
+                  percent,
+                );
+              }
             }
           },
         });
@@ -675,6 +794,13 @@ function ChatScreen() {
         downloadJobIdRef.current = null;
         isDownloadingRef.current = false;
         activeDownloadModelIdRef.current = null;
+
+        // Dismiss persistent notification & release locks on completion
+        if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
+          try {
+            await DownloadNotificationModule.stopForegroundService();
+          } catch {}
+        }
 
         if (result.statusCode !== 200) {
           throw new Error(`Download failed (HTTP ${result.statusCode})`);
@@ -708,6 +834,11 @@ function ChatScreen() {
       setPhase('ready');
       await refreshDownloadedStatus();
     } catch (e: any) {
+      if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
+        try {
+          await DownloadNotificationModule.stopForegroundService();
+        } catch {}
+      }
       isDownloadingRef.current = false;
       activeDownloadModelIdRef.current = null;
       downloadJobIdRef.current = null;
@@ -956,7 +1087,15 @@ function ChatScreen() {
 
   // Attachment handlers
   const handleTakePhoto = async () => {
+    if (isPickingMediaRef.current) return;
+    isPickingMediaRef.current = true;
     setAttachMenuOpen(false);
+
+    // Wait for attachment sheet Modal dismissal animation on iOS before presenting camera
+    if (Platform.OS === 'ios') {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 450));
+    }
+
     try {
       const res = await launchCamera({
         mediaType: 'photo',
@@ -966,12 +1105,25 @@ function ChatScreen() {
       if (res.didCancel || !res.assets || !res.assets[0]?.uri) return;
       await processImageAttachment(res.assets[0]);
     } catch (e: any) {
-      Alert.alert('Camera Notice', e?.message || 'Could not open camera.');
+      const msg = e?.message || String(e);
+      if (!msg.toLowerCase().includes('cancel')) {
+        Alert.alert('Camera Notice', msg || 'Could not open camera.');
+      }
+    } finally {
+      isPickingMediaRef.current = false;
     }
   };
 
   const handleChoosePhoto = async () => {
+    if (isPickingMediaRef.current) return;
+    isPickingMediaRef.current = true;
     setAttachMenuOpen(false);
+
+    // Wait for attachment sheet Modal dismissal animation on iOS before presenting photo library
+    if (Platform.OS === 'ios') {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 450));
+    }
+
     try {
       const res = await launchImageLibrary({
         mediaType: 'photo',
@@ -981,12 +1133,26 @@ function ChatScreen() {
       if (res.didCancel || !res.assets || !res.assets[0]?.uri) return;
       await processImageAttachment(res.assets[0]);
     } catch (e: any) {
-      Alert.alert('Photo Notice', e?.message || 'Could not select photo.');
+      const msg = e?.message || String(e);
+      if (!msg.toLowerCase().includes('cancel')) {
+        Alert.alert('Photo Notice', msg || 'Could not select photo.');
+      }
+    } finally {
+      isPickingMediaRef.current = false;
     }
   };
 
   const handlePickDocument = async () => {
+    if (isPickingMediaRef.current) return;
+    isPickingMediaRef.current = true;
     setAttachMenuOpen(false);
+
+    // Wait for attachment sheet Modal dismissal animation on iOS before presenting UIDocumentPicker
+    // This completely resolves "Warning: previous promise did not settle and you attempted to overwrite it."
+    if (Platform.OS === 'ios') {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 450));
+    }
+
     try {
       const [doc] = await pick({
         type: [types.pdf, types.plainText, types.allFiles],
@@ -1016,25 +1182,34 @@ function ChatScreen() {
       try {
         if (isImg) {
           extracted = await extractTextFromImage(doc.uri);
+        } else if (lower.endsWith('.pdf')) {
+          extracted = await extractTextFromPdf(doc.uri);
         } else if (
           lower.endsWith('.txt') ||
           lower.endsWith('.md') ||
           lower.endsWith('.json') ||
-          lower.endsWith('.csv')
+          lower.endsWith('.csv') ||
+          lower.endsWith('.log') ||
+          lower.endsWith('.py') ||
+          lower.endsWith('.js') ||
+          lower.endsWith('.ts')
         ) {
-          extracted = await RNFS.readFile(doc.uri, 'utf8');
-        } else if (lower.endsWith('.pdf')) {
-          const raw = await RNFS.readFile(doc.uri, 'ascii');
-          const matches =
-            raw.match(/\((.*?)\)\s*Tj/g) || raw.match(/\[(.*?)\]\s*TJ/g);
-          if (matches) {
-            extracted = matches
-              .map(m => m.replace(/[\(\)\[\]]|Tj|TJ/g, '').trim())
-              .filter(Boolean)
-              .join(' ');
+          let cleanUri = doc.uri;
+          if (Platform.OS === 'ios' && cleanUri.startsWith('file://')) {
+            cleanUri = cleanUri.replace('file://', '');
           }
+          extracted = await RNFS.readFile(cleanUri, 'utf8');
+        } else {
+          // General document fallback: try reading as utf8 text
+          let cleanUri = doc.uri;
+          if (Platform.OS === 'ios' && cleanUri.startsWith('file://')) {
+            cleanUri = cleanUri.replace('file://', '');
+          }
+          extracted = await RNFS.readFile(cleanUri, 'utf8');
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Text extraction error:', err);
+      }
 
       setAttachment(prev => {
         if (!prev || prev.id !== tempId) return prev;
@@ -1045,9 +1220,19 @@ function ChatScreen() {
         };
       });
     } catch (e: any) {
-      if (!isErrorWithCode(e) || e.code !== errorCodes.OPERATION_CANCELED) {
-        Alert.alert('File Notice', e?.message || 'Could not select document.');
+      const msg = e?.message || String(e);
+      // Silently ignore user cancel and promise collisions
+      if (
+        (isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED) ||
+        msg.includes('previous promise did not settle') ||
+        msg.includes('already in progress') ||
+        msg.toLowerCase().includes('cancel')
+      ) {
+        return;
       }
+      Alert.alert('File Notice', msg || 'Could not select document.');
+    } finally {
+      isPickingMediaRef.current = false;
     }
   };
 
