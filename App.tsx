@@ -244,6 +244,20 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
 }
 
+function formatDetailedSize(bytes: number) {
+  if (!bytes || bytes <= 0) return '0 MB';
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(0)} KB`;
+  }
+  return `${bytes} B`;
+}
+
 function formatMB(bytes: number) {
   return formatSize(bytes);
 }
@@ -262,6 +276,13 @@ function ChatScreen() {
   const [phase, setPhase] = useState<Phase>('checking');
   const [progress, setProgress] = useState(0);
   const [downloaded, setDownloaded] = useState(0);
+  const [downloadSpeed, setDownloadSpeed] = useState<string>('');
+  const [downloadEta, setDownloadEta] = useState<string>('');
+  const speedCalcRef = useRef<{ lastBytes: number; lastTime: number }>({ lastBytes: 0, lastTime: 0 });
+  const isDownloadingRef = useRef(false);
+  const activeDownloadModelIdRef = useRef<string | null>(null);
+  const selectedModelIdRef = useRef(selectedModelId);
+  selectedModelIdRef.current = selectedModelId;
   const [error, setError] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -540,6 +561,8 @@ function ChatScreen() {
 
   // Cancel in-progress download
   const cancelDownload = useCallback(async () => {
+    isDownloadingRef.current = false;
+    activeDownloadModelIdRef.current = null;
     if (downloadJobIdRef.current !== null) {
       try {
         RNFS.stopDownload(downloadJobIdRef.current);
@@ -555,17 +578,32 @@ function ChatScreen() {
     } catch {}
     setProgress(0);
     setDownloaded(0);
+    setDownloadSpeed('');
+    setDownloadEta('');
     setPhase('error');
     setError('Download was canceled.');
   }, [activeModel]);
 
-  // Model preparation and switching
+  // Model preparation and switching (Protected against duplicate concurrent triggers)
   const prepareModel = useCallback(async (targetModelId?: string) => {
-    const modelId = targetModelId || selectedModelId;
+    const modelId = targetModelId || selectedModelIdRef.current;
     const model =
       AVAILABLE_MODELS.find(m => m.id === modelId) || AVAILABLE_MODELS[0];
     const modelPath = `${RNFS.DocumentDirectoryPath}/${model.file}`;
     const tempPath = `${modelPath}.part`;
+
+    // If this exact model is ALREADY downloading, do NOT restart or unlink!
+    if (isDownloadingRef.current && activeDownloadModelIdRef.current === model.id) {
+      return;
+    }
+
+    // If another download was running, cancel it before switching
+    if (downloadJobIdRef.current !== null && activeDownloadModelIdRef.current !== model.id) {
+      try {
+        RNFS.stopDownload(downloadJobIdRef.current);
+      } catch {}
+      downloadJobIdRef.current = null;
+    }
 
     try {
       setError('');
@@ -574,7 +612,7 @@ function ChatScreen() {
       let ready = false;
       if (await RNFS.exists(modelPath)) {
         const stat = await RNFS.stat(modelPath);
-        ready = Number(stat.size) === model.size;
+        ready = Math.abs(Number(stat.size) - model.size) <= 4096;
         if (!ready) {
           await RNFS.unlink(modelPath);
         }
@@ -582,34 +620,67 @@ function ChatScreen() {
 
       if (!ready) {
         setPhase('downloading');
+        isDownloadingRef.current = true;
+        activeDownloadModelIdRef.current = model.id;
         setProgress(0);
         setDownloaded(0);
+        setDownloadSpeed('');
+        setDownloadEta('');
+        speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
+
         if (await RNFS.exists(tempPath)) {
           await RNFS.unlink(tempPath);
         }
+
         const job = RNFS.downloadFile({
           fromUrl: model.url,
           toFile: tempPath,
-          begin: () => {},
+          background: true,
+          discretionary: false,
           progressInterval: 250,
+          begin: () => {
+            speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
+          },
           progress: res => {
             const total =
               res.contentLength && res.contentLength > 100000000
                 ? res.contentLength
                 : model.size;
-            setDownloaded(res.bytesWritten);
-            setProgress(Math.min(1, Math.max(0, res.bytesWritten / total)));
+            const written = res.bytesWritten;
+            setDownloaded(written);
+            setProgress(Math.min(1, Math.max(0, written / total)));
+
+            // Compute live speed and ETA
+            const now = Date.now();
+            const timeDelta = (now - speedCalcRef.current.lastTime) / 1000;
+            if (timeDelta >= 1) {
+              const bytesDelta = written - speedCalcRef.current.lastBytes;
+              if (bytesDelta > 0) {
+                const spd = bytesDelta / timeDelta;
+                setDownloadSpeed(`${(spd / (1024 * 1024)).toFixed(1)} MB/s`);
+                const remaining = Math.max(0, total - written);
+                const secs = Math.round(remaining / spd);
+                if (secs > 60) {
+                  setDownloadEta(`~${Math.ceil(secs / 60)} min left`);
+                } else {
+                  setDownloadEta(`~${secs}s left`);
+                }
+              }
+              speedCalcRef.current = { lastBytes: written, lastTime: now };
+            }
           },
         });
         downloadJobIdRef.current = job.jobId;
         const result = await job.promise;
         downloadJobIdRef.current = null;
+        isDownloadingRef.current = false;
+        activeDownloadModelIdRef.current = null;
 
         if (result.statusCode !== 200) {
           throw new Error(`Download failed (HTTP ${result.statusCode})`);
         }
         const stat = await RNFS.stat(tempPath);
-        if (Number(stat.size) !== model.size) {
+        if (Math.abs(Number(stat.size) - model.size) > 4096) {
           throw new Error('Download incomplete. Check internet connection and retry.');
         }
         await RNFS.moveFile(tempPath, modelPath);
@@ -637,31 +708,46 @@ function ChatScreen() {
       setPhase('ready');
       await refreshDownloadedStatus();
     } catch (e: any) {
+      isDownloadingRef.current = false;
+      activeDownloadModelIdRef.current = null;
+      downloadJobIdRef.current = null;
       setError(e?.message ?? String(e));
       setPhase('error');
     }
-  }, [selectedModelId, refreshDownloadedStatus]);
+  }, [refreshDownloadedStatus]);
 
-  // Load saved personalization and saved model choice
+  // Load saved personalization and saved model choice on mount
   useEffect(() => {
-    RNFS.exists(SETTINGS_PATH).then(exists => {
-      if (exists) {
-        RNFS.readFile(SETTINGS_PATH, 'utf8')
-          .then(raw => {
-            const data = JSON.parse(raw);
-            if (data.systemPrompt) {
-              setSystemPrompt(data.systemPrompt);
-              setTempPrompt(data.systemPrompt);
-            }
-            const modelToLoad = data.selectedModelId || 'qwen2.5-1.5b';
-            setSelectedModelId(modelToLoad);
-            prepareModel(modelToLoad);
-          })
-          .catch(() => prepareModel('qwen2.5-1.5b'));
-      } else {
-        prepareModel('qwen2.5-1.5b');
+    let isMounted = true;
+    (async () => {
+      try {
+        let modelToLoad = 'qwen2.5-1.5b';
+        if (await RNFS.exists(SETTINGS_PATH)) {
+          const raw = await RNFS.readFile(SETTINGS_PATH, 'utf8');
+          const data = JSON.parse(raw);
+          if (data.systemPrompt) {
+            setSystemPrompt(data.systemPrompt);
+            setTempPrompt(data.systemPrompt);
+          }
+          if (data.selectedModelId) {
+            modelToLoad = data.selectedModelId;
+          }
+        }
+        if (isMounted) {
+          setSelectedModelId(modelToLoad);
+          prepareModel(modelToLoad);
+        }
+      } catch {
+        if (isMounted) {
+          prepareModel('qwen2.5-1.5b');
+        }
       }
-    });
+    })();
+    return () => {
+      isMounted = false;
+      ctxRef.current?.release();
+      ctxRef.current = null;
+    };
   }, [prepareModel]);
 
   const switchModel = async (newId: string) => {
@@ -830,14 +916,6 @@ function ChatScreen() {
       }
     }
   };
-
-  useEffect(() => {
-    prepareModel();
-    return () => {
-      ctxRef.current?.release();
-      ctxRef.current = null;
-    };
-  }, [prepareModel]);
 
   // Helper to extract text from chosen image with feedback
   const processImageAttachment = async (asset: { uri?: string; fileName?: string; fileSize?: number }) => {
@@ -1141,13 +1219,36 @@ function ChatScreen() {
             <Text style={styles.cardTitle}>Downloading {activeModel.name}</Text>
             <View style={styles.barTrack}>
               <View
-                style={[styles.barFill, { width: `${Math.round(progress * 100)}%` }]}
+                style={[
+                  styles.barFill,
+                  { width: `${Math.max(2, Math.min(100, progress * 100)).toFixed(1)}%` },
+                ]}
               />
             </View>
-            <Text style={styles.cardText}>
-              {Math.round(progress * 100)}% · {formatSize(downloaded)} /{' '}
-              {formatSize(activeModel.size)}
-            </Text>
+
+            <View style={styles.progressStatsRow}>
+              <Text style={styles.progressPercentText}>
+                {(progress * 100).toFixed(1)}%
+              </Text>
+              <Text style={styles.progressBytesText}>
+                {formatDetailedSize(downloaded)} / {formatDetailedSize(activeModel.size)}
+              </Text>
+            </View>
+
+            {(downloadSpeed !== '' || downloadEta !== '') && (
+              <View style={styles.speedEtaRow}>
+                {downloadSpeed ? (
+                  <View style={styles.speedBadge}>
+                    <Zap size={11} color={C.accent} />
+                    <Text style={styles.speedBadgeText}>{downloadSpeed}</Text>
+                  </View>
+                ) : null}
+                {downloadEta ? (
+                  <Text style={styles.etaText}>{downloadEta}</Text>
+                ) : null}
+              </View>
+            )}
+
             <Text style={styles.hint}>
               Keep the app open and Wi-Fi on. Once downloaded, it works 100% offline forever.
             </Text>
@@ -2281,6 +2382,48 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   barFill: { height: '100%', borderRadius: 5, backgroundColor: C.accent },
+  progressStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  progressPercentText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: C.accent,
+  },
+  progressBytesText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.text,
+  },
+  speedEtaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  speedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  speedBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  etaText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.textSecondary,
+  },
   button: {
     backgroundColor: C.accent,
     borderRadius: 12,
