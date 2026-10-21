@@ -12,6 +12,10 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		761780EF2CA45674006654EF /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EE2CA45674006654EF /* SceneDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		AA0010022CA4567400665401 /* NativeOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0010012CA4567400665401 /* NativeOCR.swift */; };
+		AA0010042CA4567400665402 /* NativeOCR.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0010032CA4567400665402 /* NativeOCR.m */; };
+		AA0010062CA4567400665403 /* NativeSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0010052CA4567400665403 /* NativeSpeech.swift */; };
+		AA0010082CA4567400665404 /* NativeSpeech.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0010072CA4567400665404 /* NativeSpeech.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +29,11 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = OfflineAI/AppDelegate.swift; sourceTree = "<group>"; };
 		761780EE2CA45674006654EF /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SceneDelegate.swift; path = OfflineAI/SceneDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = OfflineAI/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		AA0010012CA4567400665401 /* NativeOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeOCR.swift; path = OfflineAI/NativeOCR.swift; sourceTree = "<group>"; };
+		AA0010032CA4567400665402 /* NativeOCR.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NativeOCR.m; path = OfflineAI/NativeOCR.m; sourceTree = "<group>"; };
+		AA0010052CA4567400665403 /* NativeSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeSpeech.swift; path = OfflineAI/NativeSpeech.swift; sourceTree = "<group>"; };
+		AA0010072CA4567400665404 /* NativeSpeech.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NativeSpeech.m; path = OfflineAI/NativeSpeech.m; sourceTree = "<group>"; };
+		AA0010092CA4567400665405 /* OfflineAI-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "OfflineAI-Bridging-Header.h"; path = "OfflineAI/OfflineAI-Bridging-Header.h"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -46,6 +55,11 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				761780EE2CA45674006654EF /* SceneDelegate.swift */,
+				AA0010012CA4567400665401 /* NativeOCR.swift */,
+				AA0010032CA4567400665402 /* NativeOCR.m */,
+				AA0010052CA4567400665403 /* NativeSpeech.swift */,
+				AA0010072CA4567400665404 /* NativeSpeech.m */,
+				AA0010092CA4567400665405 /* OfflineAI-Bridging-Header.h */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -248,6 +262,10 @@
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				761780EF2CA45674006654EF /* SceneDelegate.swift in Sources */,
+				AA0010022CA4567400665401 /* NativeOCR.swift in Sources */,
+				AA0010042CA4567400665402 /* NativeOCR.m in Sources */,
+				AA0010062CA4567400665403 /* NativeSpeech.swift in Sources */,
+				AA0010082CA4567400665404 /* NativeSpeech.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -277,6 +295,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = OfflineAI;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = "OfflineAI/OfflineAI-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -306,6 +325,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = OfflineAI;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = "OfflineAI/OfflineAI-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";

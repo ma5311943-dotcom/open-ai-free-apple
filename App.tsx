@@ -14,6 +14,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeModules,
   Platform,
   Pressable,
   SafeAreaView,
@@ -33,13 +34,21 @@ import {
   Camera,
   Check,
   ChevronDown,
+  ChevronRight,
   Code2,
   Copy,
+  Cpu,
+  Download,
   FileText,
   FileUp,
+  HardDrive,
   Image as ImageIcon,
   Lightbulb,
   Mail,
+  Menu,
+  MessageSquare,
+  Mic,
+  MicOff,
   Plus,
   Send,
   Settings,
@@ -58,21 +67,66 @@ import {
 } from '@react-native-documents/picker';
 
 // ---- Model configuration --------------------------------------------------
-const MODEL_NAME = 'Qwen2.5 1.5B Instruct';
-const MODEL_FILE = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
-const MODEL_URL =
-  'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/' +
-  MODEL_FILE;
-const MODEL_SIZE = 1117320736;
-const MODEL_PATH = `${RNFS.DocumentDirectoryPath}/${MODEL_FILE}`;
-const TEMP_PATH = `${MODEL_PATH}.part`;
+export type ModelOption = {
+  id: string;
+  name: string;
+  file: string;
+  url: string;
+  size: number;
+  description: string;
+  tag: string;
+};
+
+export const AVAILABLE_MODELS: ModelOption[] = [
+  {
+    id: 'qwen2.5-14b',
+    name: 'Qwen2.5 14B Ultra Genius',
+    file: 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+    size: 8988110976,
+    description: 'Ultra-intelligent 14B brain (Rivals GPT-4o-mini). Exceptional multi-step reasoning, advanced coding & all languages.',
+    tag: 'Ultra Genius · 9.0 GB',
+  },
+  {
+    id: 'qwen2.5-7b',
+    name: 'Qwen2.5 7B Super Genius',
+    file: 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+    size: 4683074240,
+    description: 'High-intelligence 7B model. Outstanding logic, programming, mathematics & multilingual fluency.',
+    tag: 'Super Genius · 4.7 GB',
+  },
+  {
+    id: 'qwen2.5-3b',
+    name: 'Qwen2.5 3B Smart',
+    file: 'qwen2.5-3b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
+    size: 2104932768,
+    description: 'Genius Multilingual AI (Urdu, English, Hindi, Arabic, 29+ languages, Fast & Smart).',
+    tag: 'Smart · 2.1 GB',
+  },
+  {
+    id: 'qwen2.5-1.5b',
+    name: 'Qwen2.5 1.5B Fast',
+    file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    size: 1117320736,
+    description: 'Fast & Lightweight on-device assistant. Instant responses, minimal battery & RAM usage.',
+    tag: 'Fast · 1.1 GB',
+  },
+];
+
 const SETTINGS_PATH = `${RNFS.DocumentDirectoryPath}/settings.json`;
+const SESSIONS_PATH = `${RNFS.DocumentDirectoryPath}/chat_sessions.json`;
 
 const SYSTEM_PROMPT =
-  'You are a helpful, concise assistant running fully offline on a phone. ' +
-  'Answer clearly. Use short code examples when useful.';
+  'You are a helpful, concise assistant running on a phone. ' +
+  'Answer clearly in any language requested (English, Urdu, Hindi, Arabic, etc.). Use short code examples when useful. ' +
+  'When an attached image contains extracted OCR text, accurately analyze and answer questions based on that text. ' +
+  'Never hallucinate certificates, random names, or signatures not in the image.';
 const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '</s>', '<|eot_id|>'];
 const MAX_HISTORY = 8;
+const OCR_API_KEYS = ['helloworld', 'K88796853688957'];
 
 type Phase = 'checking' | 'downloading' | 'loading' | 'ready' | 'error';
 type Role = 'user' | 'assistant';
@@ -83,6 +137,7 @@ type Attachment = {
   name: string;
   size?: number;
   extractedText?: string;
+  isExtracting?: boolean;
 };
 type Message = {
   id: string;
@@ -90,6 +145,75 @@ type Message = {
   content: string;
   attachment?: Attachment;
 };
+
+export type ChatSession = {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: Message[];
+};
+
+// ---- Hybrid Offline/Online OCR Engine -------------------------------------
+async function extractTextFromImage(uri: string): Promise<string> {
+  // 1. Try Offline Apple Vision / Native OCR module
+  try {
+    const { NativeOCR } = NativeModules;
+    if (NativeOCR && typeof NativeOCR.recognizeText === 'function') {
+      const nativeText = await NativeOCR.recognizeText(uri);
+      if (nativeText && typeof nativeText === 'string' && nativeText.trim().length > 0) {
+        return nativeText.trim();
+      }
+    }
+  } catch (err) {
+    // Native module not linked or failed, fallback to online OCR
+  }
+
+  // 2. Online High-Accuracy OCR fallback via OCR.space API with dual keys
+  try {
+    let cleanUri = uri;
+    if (Platform.OS === 'ios' && cleanUri.startsWith('file://')) {
+      cleanUri = cleanUri.replace('file://', '');
+    }
+    const base64Data = await RNFS.readFile(cleanUri, 'base64');
+    const base64Image = `data:image/jpeg;base64,${base64Data}`;
+
+    for (const key of OCR_API_KEYS) {
+      try {
+        const params = new URLSearchParams({
+          apikey: key,
+          base64Image: base64Image,
+          language: 'eng',
+          isOverlayRequired: 'false',
+          detectOrientation: 'true',
+          scale: 'true',
+        });
+
+        const res = await fetch('https://api.ocr.space/parse/image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: params.toString(),
+        });
+
+        const json = await res.json();
+        if (json?.ParsedResults && json.ParsedResults.length > 0) {
+          const parsed = json.ParsedResults[0]?.ParsedText;
+          if (parsed && typeof parsed === 'string' && parsed.trim().length > 0) {
+            return parsed.trim();
+          }
+        }
+      } catch {
+        // try next key
+      }
+    }
+  } catch (e) {
+    // OCR fetch failed
+  }
+
+  return '';
+}
 
 // ---- Design tokens (Option 2: Modern Apple Light Theme) -------------------
 const C = {
@@ -113,8 +237,15 @@ const C = {
   danger: '#EF4444', // Red
 };
 
+function formatSize(bytes: number) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+}
+
 function formatMB(bytes: number) {
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+  return formatSize(bytes);
 }
 
 function App() {
@@ -127,6 +258,7 @@ function App() {
 }
 
 function ChatScreen() {
+  const [selectedModelId, setSelectedModelId] = useState<string>('qwen2.5-1.5b');
   const [phase, setPhase] = useState<Phase>('checking');
   const [progress, setProgress] = useState(0);
   const [downloaded, setDownloaded] = useState(0);
@@ -143,8 +275,251 @@ function ChatScreen() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
 
+  // Model hub: track which models are downloaded on device storage
+  const [downloadedModels, setDownloadedModels] = useState<Record<string, boolean>>({});
+  const downloadJobIdRef = useRef<number | null>(null);
+
+  // Sessions / Chat History state (matching Image 2)
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimer = useRef<any>(null);
+
   const ctxRef = useRef<LlamaContext | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
+
+  const activeModel =
+    AVAILABLE_MODELS.find(m => m.id === selectedModelId) || AVAILABLE_MODELS[0];
+
+  // Refresh which models are stored locally on the phone
+  const refreshDownloadedStatus = useCallback(async () => {
+    const status: Record<string, boolean> = {};
+    for (const m of AVAILABLE_MODELS) {
+      try {
+        const path = `${RNFS.DocumentDirectoryPath}/${m.file}`;
+        if (await RNFS.exists(path)) {
+          const stat = await RNFS.stat(path);
+          status[m.id] = Number(stat.size) === m.size;
+        } else {
+          status[m.id] = false;
+        }
+      } catch {
+        status[m.id] = false;
+      }
+    }
+    setDownloadedModels(status);
+  }, []);
+
+  useEffect(() => {
+    refreshDownloadedStatus();
+    // Auto-clean any leftover .part files from previous interrupted downloads to free up device storage
+    (async () => {
+      try {
+        for (const m of AVAILABLE_MODELS) {
+          const tempPath = `${RNFS.DocumentDirectoryPath}/${m.file}.part`;
+          if (await RNFS.exists(tempPath)) {
+            await RNFS.unlink(tempPath);
+          }
+        }
+      } catch {}
+    })();
+  }, [refreshDownloadedStatus]);
+
+  useEffect(() => {
+    if (settingsOpen) {
+      refreshDownloadedStatus();
+    }
+  }, [settingsOpen, refreshDownloadedStatus]);
+
+  // Load chat sessions from disk on startup
+  useEffect(() => {
+    RNFS.exists(SESSIONS_PATH).then(async exists => {
+      if (exists) {
+        try {
+          const raw = await RNFS.readFile(SESSIONS_PATH, 'utf8');
+          const loaded: ChatSession[] = JSON.parse(raw);
+          if (Array.isArray(loaded) && loaded.length > 0) {
+            setSessions(loaded);
+            const active = loaded[0];
+            setCurrentSessionId(active.id);
+            setMessages(active.messages || []);
+            return;
+          }
+        } catch {}
+      }
+      const initialId = `${Date.now()}`;
+      const defaultSession: ChatSession = {
+        id: initialId,
+        title: 'New conversation',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+      };
+      setSessions([defaultSession]);
+      setCurrentSessionId(initialId);
+      setMessages([]);
+    });
+  }, []);
+
+  // Helper to persist updated messages to active session
+  const persistSessionMessages = useCallback((updatedMsgs: Message[]) => {
+    setSessions(prevSessions => {
+      const activeId = currentSessionId || `${Date.now()}`;
+      let found = false;
+      const updated = prevSessions.map(s => {
+        if (s.id === activeId) {
+          found = true;
+          let title = s.title;
+          if (title === 'New conversation' && updatedMsgs.length > 0) {
+            const firstUser = updatedMsgs.find(m => m.role === 'user');
+            if (firstUser?.content?.trim()) {
+              title = firstUser.content.trim().slice(0, 36);
+            } else if (firstUser?.attachment) {
+              title = `${firstUser.attachment.type === 'image' ? 'Photo' : 'Doc'}: ${firstUser.attachment.name.slice(0, 24)}`;
+            }
+          }
+          return {
+            ...s,
+            title,
+            updatedAt: Date.now(),
+            messages: updatedMsgs,
+          };
+        }
+        return s;
+      });
+
+      if (!found) {
+        let title = 'New conversation';
+        const firstUser = updatedMsgs.find(m => m.role === 'user');
+        if (firstUser?.content?.trim()) {
+          title = firstUser.content.trim().slice(0, 36);
+        } else if (firstUser?.attachment) {
+          title = `${firstUser.attachment.type === 'image' ? 'Photo' : 'Doc'}: ${firstUser.attachment.name.slice(0, 24)}`;
+        }
+        const newSession: ChatSession = {
+          id: activeId,
+          title,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: updatedMsgs,
+        };
+        updated.unshift(newSession);
+      }
+
+      RNFS.writeFile(SESSIONS_PATH, JSON.stringify(updated), 'utf8').catch(() => {});
+      return updated;
+    });
+  }, [currentSessionId]);
+
+  const startNewChat = useCallback(() => {
+    Keyboard.dismiss();
+    const newId = `${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newId,
+      title: 'New conversation',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+    };
+    setSessions(prev => {
+      const filtered = prev.filter(s => s.messages.length > 0);
+      const next = [newSession, ...filtered];
+      RNFS.writeFile(SESSIONS_PATH, JSON.stringify(next), 'utf8').catch(() => {});
+      return next;
+    });
+    setCurrentSessionId(newId);
+    setMessages([]);
+    setAttachment(null);
+    setInput('');
+    setDrawerOpen(false);
+  }, []);
+
+  const selectSession = useCallback((session: ChatSession) => {
+    Keyboard.dismiss();
+    setCurrentSessionId(session.id);
+    setMessages(session.messages || []);
+    setAttachment(null);
+    setInput('');
+    setDrawerOpen(false);
+  }, []);
+
+  const deleteSession = useCallback((sessionId: string, title: string) => {
+    Alert.alert(
+      'Delete Conversation?',
+      `Are you sure you want to delete "${title || 'this chat'}"? This will permanently delete its messages and free storage.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setSessions(prev => {
+              const filtered = prev.filter(s => s.id !== sessionId);
+              let nextSessions = filtered;
+              if (filtered.length === 0) {
+                const freshId = `${Date.now()}`;
+                nextSessions = [
+                  {
+                    id: freshId,
+                    title: 'New conversation',
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    messages: [],
+                  },
+                ];
+              }
+              RNFS.writeFile(SESSIONS_PATH, JSON.stringify(nextSessions), 'utf8').catch(() => {});
+
+              if (sessionId === currentSessionId) {
+                const target = nextSessions[0];
+                setCurrentSessionId(target.id);
+                setMessages(target.messages || []);
+              }
+              return nextSessions;
+            });
+          },
+        },
+      ],
+    );
+  }, [currentSessionId]);
+
+  const clearAllSessions = useCallback(() => {
+    Alert.alert(
+      'Clear All Chat History?',
+      'This will permanently delete all conversation history and free up storage on your phone. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            const freshId = `${Date.now()}`;
+            const freshSession: ChatSession = {
+              id: freshId,
+              title: 'New conversation',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              messages: [],
+            };
+            setSessions([freshSession]);
+            setCurrentSessionId(freshId);
+            setMessages([]);
+            setAttachment(null);
+            setInput('');
+            setDrawerOpen(false);
+            try {
+              await RNFS.writeFile(SESSIONS_PATH, JSON.stringify([freshSession]), 'utf8');
+              Alert.alert('History Cleared', 'All chat sessions deleted and storage freed.');
+            } catch {}
+          },
+        },
+      ],
+    );
+  }, []);
 
   // Monitor keyboard visibility for modal adjustment
   useEffect(() => {
@@ -162,7 +537,109 @@ function ChatScreen() {
     };
   }, []);
 
-  // Load saved personalization
+  // Cancel in-progress download
+  const cancelDownload = useCallback(async () => {
+    if (downloadJobIdRef.current !== null) {
+      try {
+        RNFS.stopDownload(downloadJobIdRef.current);
+      } catch {}
+      downloadJobIdRef.current = null;
+    }
+    const model = activeModel;
+    const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
+    try {
+      if (await RNFS.exists(tempPath)) {
+        await RNFS.unlink(tempPath);
+      }
+    } catch {}
+    setProgress(0);
+    setDownloaded(0);
+    setPhase('error');
+    setError('Download was canceled.');
+  }, [activeModel]);
+
+  // Model preparation and switching
+  const prepareModel = useCallback(async (targetModelId?: string) => {
+    const modelId = targetModelId || selectedModelId;
+    const model =
+      AVAILABLE_MODELS.find(m => m.id === modelId) || AVAILABLE_MODELS[0];
+    const modelPath = `${RNFS.DocumentDirectoryPath}/${model.file}`;
+    const tempPath = `${modelPath}.part`;
+
+    try {
+      setError('');
+      setPhase('checking');
+
+      let ready = false;
+      if (await RNFS.exists(modelPath)) {
+        const stat = await RNFS.stat(modelPath);
+        ready = Number(stat.size) === model.size;
+        if (!ready) {
+          await RNFS.unlink(modelPath);
+        }
+      }
+
+      if (!ready) {
+        setPhase('downloading');
+        setProgress(0);
+        setDownloaded(0);
+        if (await RNFS.exists(tempPath)) {
+          await RNFS.unlink(tempPath);
+        }
+        const job = RNFS.downloadFile({
+          fromUrl: model.url,
+          toFile: tempPath,
+          begin: () => {},
+          progressInterval: 250,
+          progress: res => {
+            const total =
+              res.contentLength && res.contentLength > 100000000
+                ? res.contentLength
+                : model.size;
+            setDownloaded(res.bytesWritten);
+            setProgress(Math.min(1, Math.max(0, res.bytesWritten / total)));
+          },
+        });
+        downloadJobIdRef.current = job.jobId;
+        const result = await job.promise;
+        downloadJobIdRef.current = null;
+
+        if (result.statusCode !== 200) {
+          throw new Error(`Download failed (HTTP ${result.statusCode})`);
+        }
+        const stat = await RNFS.stat(tempPath);
+        if (Number(stat.size) !== model.size) {
+          throw new Error('Download incomplete. Check internet connection and retry.');
+        }
+        await RNFS.moveFile(tempPath, modelPath);
+        await refreshDownloadedStatus();
+      }
+
+      setPhase('loading');
+      if (ctxRef.current) {
+        try {
+          ctxRef.current.release();
+        } catch {}
+        ctxRef.current = null;
+      }
+
+      const ctx = await initLlama({
+        model: `file://${modelPath}`,
+        n_ctx: 4096,
+        n_gpu_layers: 0,
+        use_mlock: false,
+      });
+      ctxRef.current = ctx;
+      setSelectedModelId(model.id);
+      setPhase('ready');
+      await refreshDownloadedStatus();
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+      setPhase('error');
+    }
+  }, [selectedModelId, refreshDownloadedStatus]);
+
+  // Load saved personalization and saved model choice
   useEffect(() => {
     RNFS.exists(SETTINGS_PATH).then(exists => {
       if (exists) {
@@ -173,11 +650,102 @@ function ChatScreen() {
               setSystemPrompt(data.systemPrompt);
               setTempPrompt(data.systemPrompt);
             }
+            const modelToLoad = data.selectedModelId || 'qwen2.5-1.5b';
+            setSelectedModelId(modelToLoad);
+            prepareModel(modelToLoad);
           })
-          .catch(() => {});
+          .catch(() => prepareModel('qwen2.5-1.5b'));
+      } else {
+        prepareModel('qwen2.5-1.5b');
       }
     });
-  }, []);
+  }, [prepareModel]);
+
+  const switchModel = async (newId: string) => {
+    if (newId === selectedModelId && phase === 'ready') return;
+    setSettingsOpen(false);
+    setSelectedModelId(newId);
+    try {
+      await RNFS.writeFile(
+        SETTINGS_PATH,
+        JSON.stringify({ systemPrompt, selectedModelId: newId }),
+        'utf8',
+      );
+    } catch {}
+    prepareModel(newId);
+  };
+
+  const deleteModel = (model: ModelOption) => {
+    const isCurrentlyActive = model.id === selectedModelId && phase === 'ready';
+    const otherDownloaded = AVAILABLE_MODELS.find(
+      m => m.id !== model.id && downloadedModels[m.id],
+    );
+
+    if (isCurrentlyActive && !otherDownloaded) {
+      Alert.alert(
+        'Cannot Delete Only Model',
+        `This is the only downloaded model currently on your device (${formatSize(model.size)}).\n\nPlease download another model first before deleting this one so the app can continue working offline.`,
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Delete Model File',
+      isCurrentlyActive && otherDownloaded
+        ? `This model (${model.name}) is currently active. Deleting it will switch you to ${otherDownloaded.name} and permanently free ${formatSize(model.size)} of storage.`
+        : `Delete ${model.name} from your device? This will permanently free ${formatSize(model.size)} of storage.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (isCurrentlyActive && otherDownloaded) {
+                await switchModel(otherDownloaded.id);
+              }
+              const path = `${RNFS.DocumentDirectoryPath}/${model.file}`;
+              if (await RNFS.exists(path)) {
+                await RNFS.unlink(path);
+              }
+              const tempPath = `${path}.part`;
+              if (await RNFS.exists(tempPath)) {
+                await RNFS.unlink(tempPath);
+              }
+              await refreshDownloadedStatus();
+              Alert.alert('Model Deleted', `${model.name} was removed from device storage.`);
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Could not delete model.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleRequestDownload = (model: ModelOption) => {
+    if (model.size > 4000000000) {
+      Alert.alert(
+        `Download ${model.name}?`,
+        `This is a massive ${formatSize(model.size)} AI brain.\n\n` +
+          `• Connect to Wi-Fi\n` +
+          `• Requires ~10 GB free phone storage\n` +
+          `• Runs locally with deep reasoning\n\n` +
+          `Proceed with download?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Download & Activate',
+            onPress: () => {
+              switchModel(model.id);
+            },
+          },
+        ],
+      );
+    } else {
+      switchModel(model.id);
+    }
+  };
 
   const saveSettings = useCallback(async () => {
     Keyboard.dismiss();
@@ -187,71 +755,67 @@ function ChatScreen() {
     try {
       await RNFS.writeFile(
         SETTINGS_PATH,
-        JSON.stringify({ systemPrompt: nextPrompt }),
+        JSON.stringify({ systemPrompt: nextPrompt, selectedModelId }),
         'utf8',
       );
     } catch {}
-  }, [tempPrompt]);
+  }, [tempPrompt, selectedModelId, systemPrompt]);
 
-  // Model preparation
-  const prepareModel = useCallback(async () => {
-    try {
-      setError('');
-      setPhase('checking');
+  // Voice Recording / Dictation (100% Offline Speech Recognition)
+  const toggleRecording = async () => {
+    if (generating) return;
 
-      let ready = false;
-      if (await RNFS.exists(MODEL_PATH)) {
-        const stat = await RNFS.stat(MODEL_PATH);
-        ready = Number(stat.size) === MODEL_SIZE;
-        if (!ready) {
-          await RNFS.unlink(MODEL_PATH);
-        }
+    if (isRecording) {
+      // Stop recording
+      if (recordingTimer.current) {
+        clearInterval(recordingTimer.current);
+        recordingTimer.current = null;
       }
+      setIsRecording(false);
 
-      if (!ready) {
-        setPhase('downloading');
-        if (await RNFS.exists(TEMP_PATH)) {
-          await RNFS.unlink(TEMP_PATH);
+      try {
+        const { NativeSpeech } = NativeModules;
+        if (NativeSpeech && typeof NativeSpeech.stopListening === 'function') {
+          const res = await NativeSpeech.stopListening();
+          if (res?.text && res.text.trim()) {
+            setInput(prev => (prev ? `${prev} ${res.text.trim()}` : res.text.trim()));
+          } else {
+            Alert.alert('Voice Note', 'No speech was detected. Please try speaking closer to the microphone.');
+          }
         }
-        const job = RNFS.downloadFile({
-          fromUrl: MODEL_URL,
-          toFile: TEMP_PATH,
-          begin: () => {},
-          progressInterval: 250,
-          progress: res => {
-            const total =
-              res.contentLength && res.contentLength > 100000000
-                ? res.contentLength
-                : MODEL_SIZE;
-            setDownloaded(res.bytesWritten);
-            setProgress(Math.min(1, Math.max(0, res.bytesWritten / total)));
-          },
-        });
-        const result = await job.promise;
-        if (result.statusCode !== 200) {
-          throw new Error(`Download failed (HTTP ${result.statusCode})`);
-        }
-        const stat = await RNFS.stat(TEMP_PATH);
-        if (Number(stat.size) !== MODEL_SIZE) {
-          throw new Error('Download incomplete. Check internet and retry.');
-        }
-        await RNFS.moveFile(TEMP_PATH, MODEL_PATH);
+      } catch (err: any) {
+        Alert.alert('Voice Notice', err?.message || 'Could not finalize voice recording.');
       }
-
-      setPhase('loading');
-      const ctx = await initLlama({
-        model: `file://${MODEL_PATH}`,
-        n_ctx: 2048,
-        n_gpu_layers: 0,
-        use_mlock: false,
-      });
-      ctxRef.current = ctx;
-      setPhase('ready');
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
-      setPhase('error');
+    } else {
+      // Start recording
+      try {
+        const { NativeSpeech } = NativeModules;
+        if (NativeSpeech && typeof NativeSpeech.startListening === 'function') {
+          const perm = await NativeSpeech.requestPermissions();
+          if (!perm?.speech || !perm?.microphone) {
+            Alert.alert(
+              'Microphone Access',
+              'Please allow Speech Recognition and Microphone access in iOS Settings to transcribe offline.',
+            );
+            return;
+          }
+          await NativeSpeech.startListening('');
+          setIsRecording(true);
+          setRecordingSeconds(0);
+          recordingTimer.current = setInterval(() => {
+            setRecordingSeconds(s => s + 1);
+          }, 1000);
+        } else {
+          Alert.alert(
+            'Offline Voice Dictation',
+            'NativeSpeech module is ready in Xcode! Once you rebuild your iOS app, this button transcribes speech 100% offline without internet.\n\nTip: You can also tap the microphone icon on your iOS keyboard for offline dictation right now!',
+          );
+        }
+      } catch (err: any) {
+        Alert.alert('Voice Notice', err?.message || 'Could not start voice recording.');
+      }
     }
-  }, []);
+  };
 
   useEffect(() => {
     prepareModel();
@@ -260,6 +824,43 @@ function ChatScreen() {
       ctxRef.current = null;
     };
   }, [prepareModel]);
+
+  // Helper to extract text from chosen image with feedback
+  const processImageAttachment = async (asset: { uri?: string; fileName?: string; fileSize?: number }) => {
+    if (!asset.uri) return;
+    const tempId = `${Date.now()}`;
+    const name = asset.fileName || 'photo.jpg';
+
+    // Set initial attachment with extracting state
+    setAttachment({
+      id: tempId,
+      type: 'image',
+      uri: asset.uri,
+      name,
+      size: asset.fileSize,
+      isExtracting: true,
+    });
+
+    try {
+      const text = await extractTextFromImage(asset.uri);
+      setAttachment(prev => {
+        if (!prev || prev.id !== tempId) return prev;
+        return {
+          ...prev,
+          extractedText: text || undefined,
+          isExtracting: false,
+        };
+      });
+    } catch {
+      setAttachment(prev => {
+        if (!prev || prev.id !== tempId) return prev;
+        return {
+          ...prev,
+          isExtracting: false,
+        };
+      });
+    }
+  };
 
   // Attachment handlers
   const handleTakePhoto = async () => {
@@ -271,14 +872,7 @@ function ChatScreen() {
         saveToPhotos: false,
       });
       if (res.didCancel || !res.assets || !res.assets[0]?.uri) return;
-      const asset = res.assets[0];
-      setAttachment({
-        id: `${Date.now()}`,
-        type: 'image',
-        uri: asset.uri || '',
-        name: asset.fileName || 'camera_photo.jpg',
-        size: asset.fileSize,
-      });
+      await processImageAttachment(res.assets[0]);
     } catch (e: any) {
       Alert.alert('Camera Notice', e?.message || 'Could not open camera.');
     }
@@ -293,14 +887,7 @@ function ChatScreen() {
         selectionLimit: 1,
       });
       if (res.didCancel || !res.assets || !res.assets[0]?.uri) return;
-      const asset = res.assets[0];
-      setAttachment({
-        id: `${Date.now()}`,
-        type: 'image',
-        uri: asset.uri || '',
-        name: asset.fileName || 'photo.jpg',
-        size: asset.fileSize,
-      });
+      await processImageAttachment(res.assets[0]);
     } catch (e: any) {
       Alert.alert('Photo Notice', e?.message || 'Could not select photo.');
     }
@@ -315,10 +902,29 @@ function ChatScreen() {
       });
       if (!doc?.uri) return;
 
+      const lower = (doc.name || '').toLowerCase();
+      const isImg =
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.heic');
+
+      const tempId = `${Date.now()}`;
+      setAttachment({
+        id: tempId,
+        type: isImg ? 'image' : 'document',
+        uri: doc.uri,
+        name: doc.name || (isImg ? 'photo.jpg' : 'document.pdf'),
+        size: doc.size ?? undefined,
+        isExtracting: true,
+      });
+
       let extracted = '';
       try {
-        const lower = (doc.name || '').toLowerCase();
-        if (
+        if (isImg) {
+          extracted = await extractTextFromImage(doc.uri);
+        } else if (
           lower.endsWith('.txt') ||
           lower.endsWith('.md') ||
           lower.endsWith('.json') ||
@@ -338,13 +944,13 @@ function ChatScreen() {
         }
       } catch {}
 
-      setAttachment({
-        id: `${Date.now()}`,
-        type: 'document',
-        uri: doc.uri,
-        name: doc.name || 'document.pdf',
-        size: doc.size ?? undefined,
-        extractedText: extracted || undefined,
+      setAttachment(prev => {
+        if (!prev || prev.id !== tempId) return prev;
+        return {
+          ...prev,
+          extractedText: extracted || undefined,
+          isExtracting: false,
+        };
       });
     } catch (e: any) {
       if (!isErrorWithCode(e) || e.code !== errorCodes.OPERATION_CANCELED) {
@@ -352,6 +958,13 @@ function ChatScreen() {
       }
     }
   };
+
+  // Reliable auto-scroll helper
+  const scrollToBottom = useCallback((animated = true) => {
+    setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated });
+    }, 60);
+  }, []);
 
   // Send message
   const send = useCallback(async () => {
@@ -362,10 +975,15 @@ function ChatScreen() {
       return;
     }
 
+    // Dismiss keyboard immediately to reveal full chat area
+    Keyboard.dismiss();
+
     const text =
       rawText ||
       (currentAttach?.type === 'image'
-        ? 'Analyze this photo:'
+        ? (currentAttach.extractedText
+            ? 'Analyze the text from this image:'
+            : 'Analyze this photo:')
         : 'Summarize this document:');
     const userMsg: Message = {
       id: `${Date.now()}u`,
@@ -374,25 +992,46 @@ function ChatScreen() {
       attachment: currentAttach || undefined,
     };
     const botId = `${Date.now()}a`;
-    const history = [...messages, userMsg].slice(-MAX_HISTORY);
+
+    // Sliding context window: keep recent history within safe token budget
+    const allHistory = [...messages, userMsg];
+    let charBudget = 5000;
+    const history: Message[] = [];
+    for (let i = allHistory.length - 1; i >= 0; i--) {
+      const msg = allHistory[i];
+      const len = msg.content.length + (msg.attachment?.extractedText?.length || 0);
+      if (charBudget > 0 || i === allHistory.length - 1) {
+        history.unshift(msg);
+        charBudget -= len;
+      }
+    }
 
     setInput('');
     setAttachment(null);
     setSpeed('');
     setGenerating(true);
-    setMessages(prev => [
-      ...prev,
+    const initialList: Message[] = [
+      ...messages,
       userMsg,
       { id: botId, role: 'assistant', content: '' },
-    ]);
+    ];
+    setMessages(initialList);
+    persistSessionMessages(initialList);
+
+    // Ensure immediate scroll down to new prompt
+    scrollToBottom(true);
 
     // Build context with attachment for offline AI
     let promptWithAttachment = text;
     if (currentAttach) {
-      if (currentAttach.extractedText) {
+      if (currentAttach.type === 'document' && currentAttach.extractedText) {
         promptWithAttachment = `[Attached Document: "${currentAttach.name}"]\n--- Document Content ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Document ---\n\n${text}`;
       } else if (currentAttach.type === 'image') {
-        promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n${text}`;
+        if (currentAttach.extractedText) {
+          promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n--- Extracted Text from Image (OCR) ---\n${currentAttach.extractedText.slice(0, 3000)}\n--- End Extracted Text ---\n\n${text}`;
+        } else {
+          promptWithAttachment = `[Attached Image: "${currentAttach.name}"]\n(Note: No readable text was detected on this image.)\n\n${text}`;
+        }
       } else {
         promptWithAttachment = `[Attached File: "${currentAttach.name}"]\n${text}`;
       }
@@ -424,29 +1063,51 @@ function ChatScreen() {
         },
       );
       const finalText = (result.text || streamed).trim();
-      setMessages(prev =>
-        prev.map(m => (m.id === botId ? { ...m, content: finalText } : m)),
-      );
+      const finalList: Message[] = [
+        ...messages,
+        userMsg,
+        { id: botId, role: 'assistant', content: finalText },
+      ];
+      setMessages(finalList);
+      persistSessionMessages(finalList);
       const tps = result.timings?.predicted_per_second;
       if (tps) {
         setSpeed(`${tps.toFixed(1)} tokens/s`);
       }
+      scrollToBottom(true);
     } catch (e: any) {
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === botId
-            ? { ...m, content: `⚠️ ${e?.message ?? String(e)}` }
-            : m,
-        ),
-      );
+      const errorList: Message[] = [
+        ...messages,
+        userMsg,
+        { id: botId, role: 'assistant', content: `⚠️ ${e?.message ?? String(e)}` },
+      ];
+      setMessages(errorList);
+      persistSessionMessages(errorList);
+      scrollToBottom(true);
     } finally {
       setGenerating(false);
     }
-  }, [input, attachment, messages, generating, systemPrompt]);
+  }, [input, attachment, messages, generating, systemPrompt, scrollToBottom, persistSessionMessages]);
 
   const stop = useCallback(() => {
     ctxRef.current?.stopCompletion();
   }, []);
+
+  // Filter sessions by date groupings (matching Image 2)
+  const todaySessions = sessions.filter(s => {
+    const age = Date.now() - (s.updatedAt || s.createdAt);
+    return age < 24 * 60 * 60 * 1000;
+  });
+
+  const previous7DaysSessions = sessions.filter(s => {
+    const age = Date.now() - (s.updatedAt || s.createdAt);
+    return age >= 24 * 60 * 60 * 1000 && age < 7 * 24 * 60 * 60 * 1000;
+  });
+
+  const olderSessions = sessions.filter(s => {
+    const age = Date.now() - (s.updatedAt || s.createdAt);
+    return age >= 7 * 24 * 60 * 60 * 1000;
+  });
 
   // ---- UI -----------------------------------------------------------------
   if (phase !== 'ready') {
@@ -457,26 +1118,36 @@ function ChatScreen() {
           <Text style={{ color: '#7C3AED' }}>Ka</Text>
           <Text style={{ color: '#EC4899' }}>Gpt</Text>
         </Text>
-        <Text style={styles.subtitle}>{MODEL_NAME} · On-Device</Text>
+        <Text style={styles.subtitle}>{activeModel.name} · On-Device</Text>
 
         {phase === 'checking' && <Status text="Checking model…" />}
 
         {phase === 'downloading' && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Downloading model (one time)</Text>
+            <Text style={styles.cardTitle}>Downloading {activeModel.name}</Text>
             <View style={styles.barTrack}>
               <View
                 style={[styles.barFill, { width: `${Math.round(progress * 100)}%` }]}
               />
             </View>
             <Text style={styles.cardText}>
-              {Math.round(progress * 100)}% · {formatMB(downloaded)} /{' '}
-              {formatMB(MODEL_SIZE)}
+              {Math.round(progress * 100)}% · {formatSize(downloaded)} /{' '}
+              {formatSize(activeModel.size)}
             </Text>
             <Text style={styles.hint}>
-              Keep the app open and Wi-Fi on. After this, it works offline.
+              Keep the app open and Wi-Fi on. Once downloaded, it works 100% offline forever.
             </Text>
             <ActivityIndicator color={C.accent} style={{ marginTop: 14 }} />
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.cancelDownloadBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={cancelDownload}>
+              <X size={15} color={C.danger} />
+              <Text style={styles.cancelDownloadText}>Cancel Download</Text>
+            </Pressable>
           </View>
         )}
 
@@ -484,13 +1155,31 @@ function ChatScreen() {
 
         {phase === 'error' && (
           <View style={styles.card}>
-            <Text style={[styles.cardTitle, { color: C.danger }]}>Error</Text>
+            <Text style={[styles.cardTitle, { color: C.danger }]}>Download Notice</Text>
             <Text style={styles.cardText}>{error}</Text>
-            <Pressable
-              style={({ pressed }) => [styles.button, pressed && styles.pressed]}
-              onPress={prepareModel}>
-              <Text style={styles.buttonText}>Retry</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, width: '100%' }}>
+              <Pressable
+                style={({ pressed }) => [styles.button, { flex: 1 }, pressed && styles.pressed]}
+                onPress={() => prepareModel()}>
+                <Text style={styles.buttonText}>Retry</Text>
+              </Pressable>
+              {AVAILABLE_MODELS.some(m => downloadedModels[m.id] && m.id !== activeModel.id) && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.button,
+                    { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => {
+                    const fallback = AVAILABLE_MODELS.find(m => downloadedModels[m.id]);
+                    if (fallback) {
+                      switchModel(fallback.id);
+                    }
+                  }}>
+                  <Text style={[styles.buttonText, { color: C.text }]}>Use Cached</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         )}
       </View>
@@ -504,24 +1193,60 @@ function ChatScreen() {
       {/* Full-screen Edge-to-Edge Navigation Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              pressed && styles.pressed,
+            ]}
+            onPress={() => setDrawerOpen(true)}
+            accessibilityLabel="Open Chat History">
+            <Menu size={18} color={C.text} />
+          </Pressable>
+
           <Text style={styles.headerTitle} numberOfLines={1}>
             <Text style={{ color: C.accent }}>Ilyas</Text>
             <Text style={{ color: '#7C3AED' }}>Ka</Text>
             <Text style={{ color: '#EC4899' }}>Gpt</Text>
           </Text>
+
           <View style={styles.badge}>
             <View style={styles.dot} />
-            <Text style={styles.badgeText}>On-Device AI</Text>
+            <Text style={styles.badgeText}>
+              {activeModel.id === 'qwen2.5-14b'
+                ? '14B Ultra Genius'
+                : activeModel.id === 'qwen2.5-7b'
+                ? '7B Super Genius'
+                : activeModel.id === 'qwen2.5-3b'
+                ? '3B Smart AI'
+                : '1.5B Fast AI'}
+            </Text>
           </View>
         </View>
-        <Pressable
-          style={({ pressed }) => [styles.settingsBtn, pressed && styles.pressed]}
-          onPress={() => {
-            setTempPrompt(systemPrompt);
-            setSettingsOpen(true);
-          }}>
-          <Settings size={18} color={C.text} />
-        </Pressable>
+
+        <View style={styles.headerRight}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              pressed && styles.pressed,
+            ]}
+            onPress={startNewChat}
+            accessibilityLabel="New Chat">
+            <Plus size={18} color={C.text} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              pressed && styles.pressed,
+            ]}
+            onPress={() => {
+              setTempPrompt(systemPrompt);
+              setSettingsOpen(true);
+            }}
+            accessibilityLabel="Settings">
+            <Settings size={17} color={C.text} />
+          </Pressable>
+        </View>
       </View>
 
       {/* Chat Messages */}
@@ -529,10 +1254,11 @@ function ChatScreen() {
         ref={listRef}
         data={messages}
         keyExtractor={m => m.id}
+        style={{ flex: 1 }}
         contentContainerStyle={styles.list}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+        onContentSizeChange={() => scrollToBottom(true)}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>What can I help you build today?</Text>
@@ -571,85 +1297,109 @@ function ChatScreen() {
             </View>
           </View>
         }
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.bubble,
-              item.role === 'user' ? styles.userBubble : styles.botBubble,
-            ]}>
-            {item.role === 'assistant' && (
-              <View style={styles.botHeader}>
-                <View style={styles.botBadge}>
-                  <Sparkles size={10} color={C.accent} />
-                </View>
-                <Text style={styles.botName}>
-                  <Text style={{ color: C.accent }}>Ilyas</Text>
-                  <Text style={{ color: '#7C3AED' }}>KaGpt</Text>
-                </Text>
-              </View>
-            )}
+        renderItem={({ item }) => {
+          const isUser = item.role === 'user';
+          const isUserMedia = isUser && !!item.attachment;
 
-            {/* Attached media inside bubble */}
-            {item.attachment && (
-              <View style={styles.bubbleAttachmentBox}>
-                {item.attachment.type === 'image' ? (
-                  <RNImage
-                    source={{ uri: item.attachment.uri }}
-                    style={styles.bubbleImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.bubbleDocCard,
-                      item.role === 'user' && styles.bubbleDocCardUser,
-                    ]}>
+          return (
+            <View
+              style={[
+                styles.bubble,
+                isUser
+                  ? isUserMedia
+                    ? styles.userMediaBubble
+                    : styles.userBubble
+                  : styles.botBubble,
+              ]}>
+              {item.role === 'assistant' && (
+                <View style={styles.botHeader}>
+                  <View style={styles.botBadge}>
+                    <Sparkles size={10} color={C.accent} />
+                  </View>
+                  <Text style={styles.botName}>
+                    <Text style={{ color: C.accent }}>Ilyas</Text>
+                    <Text style={{ color: '#7C3AED' }}>KaGpt</Text>
+                  </Text>
+                </View>
+              )}
+
+              {/* Attached media inside bubble (Clean white container, no blue background) */}
+              {item.attachment && (
+                <View style={styles.bubbleAttachmentBox}>
+                  {item.attachment.type === 'image' ? (
+                    <RNImage
+                      source={{ uri: item.attachment.uri }}
+                      style={styles.bubbleImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
                     <View
                       style={[
-                        styles.bubbleDocIcon,
-                        item.role === 'user' && styles.bubbleDocIconUser,
+                        styles.bubbleDocCard,
+                        isUser && !isUserMedia && styles.bubbleDocCardUser,
                       ]}>
-                      <FileText
-                        size={18}
-                        color={item.role === 'user' ? '#FFFFFF' : C.accent}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
+                      <View
                         style={[
-                          styles.bubbleDocName,
-                          item.role === 'user' && { color: '#FFFFFF' },
-                        ]}
-                        numberOfLines={1}>
-                        {item.attachment.name}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.bubbleDocMeta,
-                          item.role === 'user' && {
-                            color: 'rgba(255,255,255,0.7)',
-                          },
+                          styles.bubbleDocIcon,
+                          isUser && !isUserMedia && styles.bubbleDocIconUser,
                         ]}>
-                        PDF Document ·{' '}
-                        {item.attachment.size
-                          ? formatMB(item.attachment.size)
-                          : 'File'}
-                      </Text>
+                        <FileText
+                          size={18}
+                          color={isUser && !isUserMedia ? '#FFFFFF' : C.accent}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.bubbleDocName,
+                            isUser && !isUserMedia && { color: '#FFFFFF' },
+                          ]}
+                          numberOfLines={1}>
+                          {item.attachment.name}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.bubbleDocMeta,
+                            isUser && !isUserMedia && {
+                              color: 'rgba(255,255,255,0.7)',
+                            },
+                          ]}>
+                          PDF Document ·{' '}
+                          {item.attachment.size
+                            ? formatMB(item.attachment.size)
+                            : 'File'}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                )}
-              </View>
-            )}
+                  )}
+                </View>
+              )}
 
-            <MessageContent content={item.content} role={item.role} />
-          </View>
-        )}
+              <MessageContent
+                content={item.content}
+                role={item.role}
+                isMediaUser={isUserMedia}
+              />
+            </View>
+          );
+        }}
       />
 
       {!!speed && <Text style={styles.speed}>{speed}</Text>}
 
       {/* Floating Capsule Input Bar */}
       <View style={styles.inputContainer}>
+        {/* Offline Voice Recording Status Banner */}
+        {isRecording && (
+          <View style={styles.recordingBar}>
+            <View style={styles.recordingPulse} />
+            <Text style={styles.recordingText}>
+              Listening offline ({Math.floor(recordingSeconds / 60)}:
+              {(recordingSeconds % 60).toString().padStart(2, '0')})… Tap mic to finish
+            </Text>
+          </View>
+        )}
+
         {/* Attachment preview if an image/doc is picked */}
         {attachment && (
           <View style={styles.previewBar}>
@@ -667,13 +1417,19 @@ function ChatScreen() {
               <Text style={styles.previewName} numberOfLines={1}>
                 {attachment.name}
               </Text>
-              <Text style={styles.previewSub}>
-                {attachment.type === 'image'
-                  ? 'Photo attached'
-                  : 'Document attached'}
-                {attachment.extractedText ? ' · Text extracted' : ''}
+              <Text style={styles.previewSub} numberOfLines={1}>
+                {attachment.isExtracting
+                  ? 'Extracting text with OCR…'
+                  : attachment.type === 'image'
+                  ? attachment.extractedText
+                    ? `Text extracted: "${attachment.extractedText.slice(0, 25)}…"`
+                    : 'Photo attached · No text found'
+                  : 'Document attached' + (attachment.extractedText ? ' · Text extracted' : '')}
               </Text>
             </View>
+            {attachment.isExtracting && (
+              <ActivityIndicator size="small" color={C.accent} style={{ marginRight: 6 }} />
+            )}
             <Pressable
               style={styles.previewCloseBtn}
               onPress={() => setAttachment(null)}
@@ -708,6 +1464,23 @@ function ChatScreen() {
             multiline
             editable={!generating}
           />
+
+          {/* Offline Mic / Dictation Button */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.micBtn,
+              isRecording && styles.micBtnActive,
+              pressed && styles.pressed,
+            ]}
+            onPress={toggleRecording}
+            accessibilityLabel={isRecording ? 'Stop voice recording' : 'Start offline voice recording'}>
+            {isRecording ? (
+              <MicOff size={17} color="#FFFFFF" />
+            ) : (
+              <Mic size={17} color={C.textSecondary} />
+            )}
+          </Pressable>
+
           {generating ? (
             <Pressable
               style={({ pressed }) => [
@@ -913,6 +1686,119 @@ function ChatScreen() {
                 </Pressable>
               </View>
 
+              {/* On-Device AI Model Hub */}
+              <View style={styles.modelHubHeader}>
+                <Text style={styles.modelSectionTitle}>On-Device AI Model Hub</Text>
+                <Text style={styles.settingHint}>
+                  Download, manage storage & switch offline brains directly on your phone:
+                </Text>
+              </View>
+
+              <View style={{ gap: 10, marginBottom: 16 }}>
+                {AVAILABLE_MODELS.map(m => {
+                  const isSelected = selectedModelId === m.id;
+                  const isDownloaded = downloadedModels[m.id] === true;
+                  const isActive = isSelected && phase === 'ready';
+
+                  return (
+                    <View
+                      key={m.id}
+                      style={[
+                        styles.modelCard,
+                        isActive && styles.modelCardActive,
+                      ]}>
+                      <View style={styles.modelCardTop}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text
+                            style={[
+                              styles.modelCardName,
+                              isActive && { color: C.accent },
+                            ]}>
+                            {m.name}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.modelTag,
+                            isActive && styles.modelTagActive,
+                          ]}>
+                          <Text
+                            style={[
+                              styles.modelTagText,
+                              isActive && { color: '#FFFFFF' },
+                            ]}>
+                            {m.tag}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.modelCardDesc}>{m.description}</Text>
+
+                      {/* Status badge & action buttons */}
+                      <View style={styles.modelActionRow}>
+                        {isActive ? (
+                          <View style={styles.modelActiveBadge}>
+                            <Check size={12} color="#059669" />
+                            <Text style={styles.modelActiveBadgeText}>Active & Running</Text>
+                          </View>
+                        ) : isDownloaded ? (
+                          <View style={styles.modelDownloadedBadge}>
+                            <HardDrive size={12} color={C.accent} />
+                            <Text style={styles.modelDownloadedBadgeText}>Downloaded</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.modelNotDownloadedBadge}>
+                            <Text style={styles.modelNotDownloadedText}>Not on device</Text>
+                          </View>
+                        )}
+
+                        <View style={styles.modelBtnGroup}>
+                          {isDownloaded && (
+                            <>
+                              {!isActive && (
+                                <Pressable
+                                  style={({ pressed }) => [
+                                    styles.modelSwitchBtn,
+                                    pressed && styles.pressed,
+                                  ]}
+                                  onPress={() => switchModel(m.id)}>
+                                  <Zap size={12} color="#FFFFFF" />
+                                  <Text style={styles.modelSwitchBtnText}>Switch</Text>
+                                </Pressable>
+                              )}
+                              <Pressable
+                                style={({ pressed }) => [
+                                  styles.modelDeleteBtn,
+                                  pressed && styles.pressed,
+                                ]}
+                                onPress={() => deleteModel(m)}
+                                hitSlop={6}
+                                accessibilityLabel={`Delete ${m.name}`}>
+                                <Trash2 size={13} color={C.danger} />
+                              </Pressable>
+                            </>
+                          )}
+
+                          {!isDownloaded && (
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.modelDownloadBtn,
+                                pressed && styles.pressed,
+                              ]}
+                              onPress={() => handleRequestDownload(m)}>
+                              <Download size={13} color={C.accent} />
+                              <Text style={styles.modelDownloadBtnText}>
+                                Download & Use
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
               <View style={styles.modalActions}>
                 <Pressable
                   style={[styles.modalBtn, styles.clearBtn]}
@@ -935,16 +1821,255 @@ function ChatScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Sessions / Chat History Drawer (matching Image 2) */}
+      <Modal
+        visible={drawerOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setDrawerOpen(false)}>
+        <View style={styles.drawerOverlay}>
+          <Pressable
+            style={styles.drawerBackdrop}
+            onPress={() => setDrawerOpen(false)}
+          />
+
+          <View style={styles.drawerContainer}>
+            {/* Header: App Title & Close button */}
+            <View style={styles.drawerHeader}>
+              <View style={styles.drawerBrandRow}>
+                <View style={styles.drawerLogoIcon}>
+                  <Sparkles size={16} color={C.accent} />
+                </View>
+                <Text style={styles.drawerBrandText}>
+                  <Text style={{ color: C.accent }}>Ilyas</Text>
+                  <Text style={{ color: '#7C3AED' }}>Ka</Text>
+                  <Text style={{ color: '#EC4899' }}>Gpt</Text>
+                </Text>
+              </View>
+              <Pressable
+                style={styles.drawerCloseBtn}
+                onPress={() => setDrawerOpen(false)}
+                hitSlop={8}>
+                <X size={18} color={C.muted} />
+              </Pressable>
+            </View>
+
+            {/* + New Chat Button (Pill button like Image 2) */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.drawerNewChatBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={startNewChat}>
+              <Plus size={18} color={C.accent} />
+              <Text style={styles.drawerNewChatText}>New chat</Text>
+            </Pressable>
+
+            {/* Sessions List */}
+            <ScrollView
+              style={styles.drawerScroll}
+              showsVerticalScrollIndicator={false}>
+              {todaySessions.length > 0 && (
+                <View style={styles.drawerSection}>
+                  <Text style={styles.drawerSectionHeader}>TODAY</Text>
+                  {todaySessions.map(s => {
+                    const isCurrent = s.id === currentSessionId;
+                    return (
+                      <Pressable
+                        key={s.id}
+                        style={({ pressed }) => [
+                          styles.sessionItem,
+                          isCurrent && styles.sessionItemActive,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => selectSession(s)}>
+                        <MessageSquare
+                          size={15}
+                          color={isCurrent ? C.accent : C.muted}
+                          style={{ marginRight: 10 }}
+                        />
+                        <Text
+                          style={[
+                            styles.sessionTitle,
+                            isCurrent && styles.sessionTitleActive,
+                          ]}
+                          numberOfLines={1}>
+                          {s.title || 'Conversation'}
+                        </Text>
+                        <Pressable
+                          style={styles.sessionDeleteBtn}
+                          onPress={() => deleteSession(s.id, s.title)}
+                          hitSlop={8}>
+                          <Trash2 size={13} color={isCurrent ? C.accent : C.muted} />
+                        </Pressable>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
+              {previous7DaysSessions.length > 0 && (
+                <View style={styles.drawerSection}>
+                  <Text style={styles.drawerSectionHeader}>PREVIOUS 7 DAYS</Text>
+                  {previous7DaysSessions.map(s => {
+                    const isCurrent = s.id === currentSessionId;
+                    return (
+                      <Pressable
+                        key={s.id}
+                        style={({ pressed }) => [
+                          styles.sessionItem,
+                          isCurrent && styles.sessionItemActive,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => selectSession(s)}>
+                        <MessageSquare
+                          size={15}
+                          color={isCurrent ? C.accent : C.muted}
+                          style={{ marginRight: 10 }}
+                        />
+                        <Text
+                          style={[
+                            styles.sessionTitle,
+                            isCurrent && styles.sessionTitleActive,
+                          ]}
+                          numberOfLines={1}>
+                          {s.title || 'Conversation'}
+                        </Text>
+                        <Pressable
+                          style={styles.sessionDeleteBtn}
+                          onPress={() => deleteSession(s.id, s.title)}
+                          hitSlop={8}>
+                          <Trash2 size={13} color={isCurrent ? C.accent : C.muted} />
+                        </Pressable>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
+              {olderSessions.length > 0 && (
+                <View style={styles.drawerSection}>
+                  <Text style={styles.drawerSectionHeader}>OLDER</Text>
+                  {olderSessions.map(s => {
+                    const isCurrent = s.id === currentSessionId;
+                    return (
+                      <Pressable
+                        key={s.id}
+                        style={({ pressed }) => [
+                          styles.sessionItem,
+                          isCurrent && styles.sessionItemActive,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => selectSession(s)}>
+                        <MessageSquare
+                          size={15}
+                          color={isCurrent ? C.accent : C.muted}
+                          style={{ marginRight: 10 }}
+                        />
+                        <Text
+                          style={[
+                            styles.sessionTitle,
+                            isCurrent && styles.sessionTitleActive,
+                          ]}
+                          numberOfLines={1}>
+                          {s.title || 'Conversation'}
+                        </Text>
+                        <Pressable
+                          style={styles.sessionDeleteBtn}
+                          onPress={() => deleteSession(s.id, s.title)}
+                          hitSlop={8}>
+                          <Trash2 size={13} color={isCurrent ? C.accent : C.muted} />
+                        </Pressable>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
+              {sessions.length === 0 && (
+                <View style={styles.drawerEmpty}>
+                  <Text style={styles.drawerEmptyText}>No conversations yet</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Bottom Actions Bar (Model Center, Settings, Clear All) */}
+            <View style={styles.drawerFooter}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.drawerFooterItem,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setDrawerOpen(false);
+                  setTempPrompt(systemPrompt);
+                  setSettingsOpen(true);
+                }}>
+                <Cpu size={18} color={C.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.drawerFooterLabel}>Model Center</Text>
+                  <Text style={styles.drawerFooterSub}>
+                    {activeModel.name.split(' ')[1] || activeModel.name} · {formatSize(activeModel.size)}
+                  </Text>
+                </View>
+                <ChevronRight size={16} color={C.muted} />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.drawerFooterItem,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setDrawerOpen(false);
+                  setTempPrompt(systemPrompt);
+                  setSettingsOpen(true);
+                }}>
+                <Settings size={18} color={C.textSecondary} />
+                <Text style={styles.drawerFooterLabel}>Settings & Persona</Text>
+                <ChevronRight size={16} color={C.muted} />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.drawerFooterItem,
+                  pressed && styles.pressed,
+                ]}
+                onPress={clearAllSessions}>
+                <Trash2 size={16} color={C.danger} />
+                <Text style={[styles.drawerFooterLabel, { color: C.danger }]}>
+                  Clear All History
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 // ---- Markdown Code Block & Message Renderer -------------------------------
-function MessageContent({ content, role }: { content: string; role: Role }) {
+function MessageContent({
+  content,
+  role,
+  isMediaUser,
+}: {
+  content: string;
+  role: Role;
+  isMediaUser?: boolean;
+}) {
   if (role === 'user' || !content.includes('```')) {
     return (
       <Text
-        style={role === 'user' ? styles.userText : styles.botText}
+        style={
+          isMediaUser
+            ? styles.userMediaText
+            : role === 'user'
+            ? styles.userText
+            : styles.botText
+        }
         selectable>
         {content || '…'}
       </Text>
@@ -1018,8 +2143,12 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
           )}
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <Text style={styles.codeContent} selectable>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled={true}
+        style={styles.codeScrollHorizontal}>
+        <Text style={styles.codeContent}>
           {code}
         </Text>
       </ScrollView>
@@ -1121,11 +2250,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accentGreen },
-  badgeText: { color: C.accentGreen, fontSize: 12, fontWeight: '700' },
-  settingsBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    badgeText: { color: C.accentGreen, fontSize: 12, fontWeight: '700' },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
@@ -1186,6 +2320,28 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 6,
     elevation: 3,
+  },
+  userMediaBubble: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 20,
+    borderBottomRightRadius: 4,
+    padding: 8,
+    maxWidth: '88%',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  userMediaText: {
+    color: C.text,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
   botBubble: {
     alignSelf: 'flex-start',
@@ -1263,6 +2419,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 8,
     marginBottom: 4,
+    width: '100%',
+    maxHeight: 400,
+  },
+  codeScrollHorizontal: {
+    maxHeight: 340,
   },
   codeHeader: {
     flexDirection: 'row',
@@ -1313,6 +2474,206 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 34 : 14,
     backgroundColor: C.bg,
+    zIndex: 10,
+    elevation: 10,
+  },
+  micBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.surface2,
+  },
+  micBtnActive: {
+    backgroundColor: C.danger,
+  },
+  recordingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 8,
+    gap: 8,
+  },
+  recordingPulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.danger,
+  },
+  recordingText: {
+    color: C.danger,
+    fontSize: 12,
+    fontWeight: '700',
+    flex: 1,
+  },
+  modelHubHeader: {
+    marginTop: 18,
+    marginBottom: 4,
+  },
+  modelSectionTitle: {
+    color: C.text,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  modelCard: {
+    backgroundColor: C.surface2,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    padding: 14,
+    marginTop: 4,
+    gap: 8,
+  },
+  modelCardActive: {
+    borderColor: C.accent,
+    backgroundColor: C.accentSoft,
+  },
+  modelCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modelCardName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: C.text,
+  },
+  modelTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  modelTagActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  modelTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.textSecondary,
+  },
+  modelCardDesc: {
+    fontSize: 12,
+    color: C.textSecondary,
+    lineHeight: 16,
+  },
+  modelActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  modelActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  modelActiveBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  modelDownloadedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  modelDownloadedBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+  },
+  modelNotDownloadedBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  modelNotDownloadedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: C.muted,
+  },
+  modelBtnGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modelSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accent,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  modelSwitchBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modelDeleteBtn: {
+    padding: 6,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modelDownloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  modelDownloadBtnText: {
+    color: C.accent,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  cancelDownloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  cancelDownloadText: {
+    color: C.danger,
+    fontSize: 13,
+    fontWeight: '700',
   },
   inputCard: {
     flexDirection: 'row',
@@ -1585,6 +2946,157 @@ const styles = StyleSheet.create({
   clearBtnText: { color: C.danger, fontWeight: '700', fontSize: 14 },
   saveBtn: { backgroundColor: C.accent },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // Sessions / Chat History Drawer (matching Image 2)
+  drawerOverlay: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  drawerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  drawerContainer: {
+    width: '82%',
+    maxWidth: 340,
+    height: '100%',
+    backgroundColor: C.surface,
+    paddingTop: Platform.OS === 'ios' ? 54 : 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingHorizontal: 16,
+    borderRightWidth: 1,
+    borderRightColor: C.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 4, height: 0 },
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  drawerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  drawerLogoIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: C.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  drawerBrandText: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  drawerCloseBtn: {
+    padding: 6,
+    borderRadius: 14,
+    backgroundColor: C.surface2,
+  },
+  drawerNewChatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  drawerNewChatText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.text,
+  },
+  drawerScroll: {
+    flex: 1,
+    marginTop: 6,
+  },
+  drawerSection: {
+    marginBottom: 18,
+  },
+  drawerSectionHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.muted,
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    paddingHorizontal: 6,
+  },
+  sessionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 3,
+  },
+  sessionItemActive: {
+    backgroundColor: C.accentSoft,
+  },
+  sessionTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: C.textSecondary,
+  },
+  sessionTitleActive: {
+    color: C.accent,
+    fontWeight: '700',
+  },
+  sessionDeleteBtn: {
+    padding: 6,
+    borderRadius: 8,
+  },
+  drawerEmpty: {
+    paddingVertical: 32,
+    alignItems: 'center',
+  },
+  drawerEmptyText: {
+    fontSize: 13,
+    color: C.muted,
+  },
+  drawerFooter: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    gap: 4,
+  },
+  drawerFooterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  drawerFooterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: C.text,
+  },
+  drawerFooterSub: {
+    fontSize: 11,
+    color: C.muted,
+    marginTop: 1,
+  },
 });
 
 export default App;
