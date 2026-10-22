@@ -232,6 +232,8 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   },
 ];
 
+export type ResponseLanguage = 'en' | 'ur';
+
 const SETTINGS_PATH = `${RNFS.DocumentDirectoryPath}/settings.json`;
 const SESSIONS_PATH = `${RNFS.DocumentDirectoryPath}/chat_sessions.json`;
 
@@ -553,6 +555,7 @@ function ChatScreen() {
   const [speed, setSpeed] = useState('');
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
+  const [responseLanguage, setResponseLanguage] = useState<ResponseLanguage>('en');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'models' | 'downloads' | 'persona'>('models');
   const [tempPrompt, setTempPrompt] = useState(SYSTEM_PROMPT);
@@ -609,6 +612,14 @@ function ChatScreen() {
 
   const activeModel =
     AVAILABLE_MODELS.find(m => m.id === selectedModelId) || AVAILABLE_MODELS[0];
+
+  const activeTextModel =
+    AVAILABLE_MODELS.find(m => m.id === activeTextModelId) || AVAILABLE_MODELS[0];
+
+  const activeVisionModel =
+    AVAILABLE_MODELS.find(m => m.id === activeVisionModelId) ||
+    AVAILABLE_MODELS.find(m => m.category === 'vision') ||
+    AVAILABLE_MODELS[AVAILABLE_MODELS.length - 2];
 
   const activeDownloadModel =
     AVAILABLE_MODELS.find(m => m.id === downloadingModelId) ||
@@ -1361,6 +1372,9 @@ function ChatScreen() {
             setSystemPrompt(data.systemPrompt);
             setTempPrompt(data.systemPrompt);
           }
+          if (data.responseLanguage === 'en' || data.responseLanguage === 'ur') {
+            setResponseLanguage(data.responseLanguage);
+          }
           if (data.selectedModelId) {
             modelToLoad = data.selectedModelId;
           }
@@ -1562,6 +1576,7 @@ function ChatScreen() {
           voiceResponseEnabled,
           activeTextModelId: nextText,
           activeVisionModelId: nextVision,
+          responseLanguage,
         }),
         'utf8',
       );
@@ -1643,6 +1658,26 @@ function ChatScreen() {
     setSettingsTab('downloads');
   };
 
+  const updateResponseLanguage = useCallback(
+    async (lang: ResponseLanguage) => {
+      setResponseLanguage(lang);
+      try {
+        const currentSettings = (await RNFS.exists(SETTINGS_PATH))
+          ? JSON.parse(await RNFS.readFile(SETTINGS_PATH, 'utf8'))
+          : {};
+        await RNFS.writeFile(
+          SETTINGS_PATH,
+          JSON.stringify({
+            ...currentSettings,
+            responseLanguage: lang,
+          }),
+          'utf8',
+        );
+      } catch {}
+    },
+    [],
+  );
+
   const saveSettings = useCallback(async () => {
     Keyboard.dismiss();
     const nextPrompt = tempPrompt.trim() || SYSTEM_PROMPT;
@@ -1657,11 +1692,19 @@ function ChatScreen() {
           voiceResponseEnabled,
           activeTextModelId,
           activeVisionModelId,
+          responseLanguage,
         }),
         'utf8',
       );
     } catch {}
-  }, [tempPrompt, selectedModelId, voiceResponseEnabled, activeTextModelId, activeVisionModelId]);
+  }, [
+    tempPrompt,
+    selectedModelId,
+    voiceResponseEnabled,
+    activeTextModelId,
+    activeVisionModelId,
+    responseLanguage,
+  ]);
 
   // Voice Recording & Hands-free Conversation (100% Offline Speech Recognition)
   const toggleRecording = async () => {
@@ -1987,8 +2030,7 @@ function ChatScreen() {
         (typeof customText === 'string' ? customText : input).trim(),
       );
       const currentAttach = attachment;
-      const ctx = ctxRef.current;
-      if ((!rawText && !currentAttach) || !ctx || generating) {
+      if ((!rawText && !currentAttach) || generating) {
         return;
       }
 
@@ -2001,6 +2043,68 @@ function ChatScreen() {
       // Reset user to bottom when sending a new message
       isUserAtBottomRef.current = true;
       setShowScrollBottomBtn(false);
+
+      const isPhoto = currentAttach?.type === 'image' && !!currentAttach.uri;
+
+      // Dual-Brain Cooperation:
+      // If photo attached -> auto-select Active Vision Brain
+      // If text/document -> auto-select Active Text Brain
+      let targetModelId = selectedModelId;
+      if (isPhoto) {
+        if (downloadedModels[activeVisionModelId]) {
+          targetModelId = activeVisionModelId;
+        } else {
+          const anyVision = AVAILABLE_MODELS.find(
+            m => m.category === 'vision' && downloadedModels[m.id],
+          );
+          if (anyVision) targetModelId = anyVision.id;
+        }
+      } else {
+        if (downloadedModels[activeTextModelId]) {
+          targetModelId = activeTextModelId;
+        }
+      }
+
+      const targetModel =
+        AVAILABLE_MODELS.find(m => m.id === targetModelId) || activeModel;
+      const isTargetVision = targetModel.category === 'vision';
+
+      let activeCtx = ctxRef.current;
+      if (
+        !activeCtx ||
+        selectedModelId !== targetModelId ||
+        (isPhoto && isTargetVision && !isMultimodalReadyRef.current)
+      ) {
+        if (downloadedModels[targetModelId]) {
+          setSpeed(`Switching to ${targetModel.name}…`);
+          await prepareModel(targetModelId);
+          activeCtx = ctxRef.current;
+        }
+      }
+
+      if (!activeCtx) {
+        setGenerating(false);
+        if (isPhoto) {
+          Alert.alert(
+            'Vision Brain Required',
+            `To analyze photos directly with on-device Vision AI, please download your selected Vision model (${activeVisionModel.name}) from Settings > Model Hub.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Model Hub',
+                onPress: () => {
+                  setModelCategoryFilter('vision');
+                  setSettingsTab('models');
+                  setSettingsOpen(true);
+                },
+              },
+            ],
+          );
+        } else {
+          Alert.alert('AI Model Not Ready', 'Please select or download a model in Settings.');
+        }
+        return;
+      }
 
       const text =
         rawText ||
@@ -2063,30 +2167,55 @@ function ChatScreen() {
 
       // Check if Vision model is active and multimodal is initialized
       const isVisionActive =
-        activeModel.category === 'vision' &&
-        isMultimodalReadyRef.current &&
-        currentAttach?.type === 'image' &&
-        !!currentAttach.uri;
+        isPhoto &&
+        targetModel.category === 'vision' &&
+        isMultimodalReadyRef.current;
+
+      // Prepare system prompt and per-turn directive with strict language enforcement
+      let languageSystemRule = '';
+      let promptLanguageDirective = '';
+
+      if (responseLanguage === 'ur') {
+        languageSystemRule =
+          '\n\n[STRICT LANGUAGE MANDATE - ROMAN URDU ONLY]:\n' +
+          '1. You MUST formulate your entire response exclusively in Roman Urdu (Urdu words written using standard English Latin alphabet, e.g. "Aap kaise hain?", "Tablets aur mobiles mein bunyadi farq yeh hotay hain...").\n' +
+          '2. NEVER write in Arabic or Persian Urdu script (do NOT write اردو characters).\n' +
+          '3. NEVER use Chinese (中文), Japanese, or any East Asian characters under any circumstance.\n' +
+          '4. Keep the wording natural, polite, and fluent Roman Urdu. Even if the user asks in English or another language, your final answer MUST ALWAYS be in Roman Urdu.';
+        promptLanguageDirective =
+          '\n\n(Important: Please reply strictly in Roman Urdu using English alphabet only. Do NOT use Chinese, Japanese, or Arabic script.)';
+      } else {
+        languageSystemRule =
+          '\n\n[STRICT LANGUAGE MANDATE - ENGLISH ONLY]:\n' +
+          '1. You MUST formulate your entire response exclusively in English.\n' +
+          '2. NEVER output Chinese (中文), Japanese, or any East Asian characters under any circumstance.\n' +
+          '3. Even if the user asks in Urdu or another language, answer clearly, accurately, and fluently in English.';
+        promptLanguageDirective =
+          '\n\n(Important: Please reply strictly in English. Do NOT use Chinese or Japanese characters.)';
+      }
+
+      const activeSystemPrompt = `${systemPrompt}${languageSystemRule}`;
 
       let messagesPayload: any[] = [];
       if (isVisionActive && currentAttach) {
         messagesPayload = [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: activeSystemPrompt },
           ...history.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
           {
             role: 'user',
             content: [
-              { type: 'text', text: text },
+              { type: 'text', text: `${text}${promptLanguageDirective}` },
               { type: 'image_url', image_url: { url: currentAttach.uri } },
             ],
           },
         ];
       } else {
         messagesPayload = [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: activeSystemPrompt },
           ...history.map((m, idx) => {
-            if (idx === history.length - 1 && currentAttach) {
-              return { role: m.role, content: promptWithAttachment };
+            if (idx === history.length - 1) {
+              const baseContent = currentAttach ? promptWithAttachment : m.content;
+              return { role: m.role, content: `${baseContent}${promptLanguageDirective}` };
             }
             return { role: m.role, content: m.content };
           }),
@@ -2106,7 +2235,7 @@ function ChatScreen() {
       }
 
       try {
-        const result = await ctx.completion(
+        const result = await activeCtx.completion(
           {
             messages: messagesPayload,
             ...(mediaPaths.length > 0 ? { media_paths: mediaPaths } : {}),
@@ -2116,8 +2245,13 @@ function ChatScreen() {
             stop: STOP_WORDS,
           },
           data => {
-            streamed += data.token;
-            sentenceBuffer += data.token;
+            let token = data.token;
+            // Strict Chinese/Japanese character filter when English or Roman Urdu is selected
+            if (responseLanguage === 'en' || responseLanguage === 'ur') {
+              token = token.replace(/[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\u31F0-\u31FF\uFF65-\uFF9F]/g, '');
+            }
+            streamed += token;
+            sentenceBuffer += token;
 
             // Zero-latency sentence streaming: speak sentence-by-sentence
             if (voiceResponseEnabled) {
@@ -2138,7 +2272,10 @@ function ChatScreen() {
             );
           },
         );
-        const finalText = (result.text || streamed).trim();
+        let finalText = (result.text || streamed).trim();
+        if (responseLanguage === 'en' || responseLanguage === 'ur') {
+          finalText = finalText.replace(/[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\u31F0-\u31FF\uFF65-\uFF9F]/g, '').trim();
+        }
         const finalList: Message[] = [
           ...messages,
           userMsg,
@@ -2193,7 +2330,14 @@ function ChatScreen() {
       voiceResponseEnabled,
       speakText,
       speakSentence,
-      activeModel.category,
+      activeModel,
+      activeTextModelId,
+      activeVisionModelId,
+      selectedModelId,
+      downloadedModels,
+      prepareModel,
+      responseLanguage,
+      setModelCategoryFilter,
     ],
   );
 
@@ -2514,20 +2658,7 @@ function ChatScreen() {
                 ]}
               />
               <Text style={styles.headerSubtitleText} numberOfLines={1}>
-                {activeModel.category === 'vision' ? '👁️ ' : '🧠 '}
-                {activeModel.id === 'qwen2.5-14b'
-                  ? '14B Ultra Genius'
-                  : activeModel.id === 'qwen2.5-7b'
-                  ? '7B Super Genius'
-                  : activeModel.id === 'qwen2.5-3b'
-                  ? '3B Smart AI'
-                  : activeModel.id === 'qwen2.5-1.5b'
-                  ? '1.5B Fast AI'
-                  : activeModel.id === 'qwen2-vl-7b'
-                  ? '7B Vision Master'
-                  : activeModel.id === 'qwen2-vl-2b'
-                  ? '2B Vision Fast'
-                  : activeModel.name}
+                {`🧠 ${activeTextModel.name.split(' ')[0]} ${activeTextModel.name.split(' ')[1] || ''} · 👁️ ${downloadedModels[activeVisionModelId] ? activeVisionModel.name.split(' ')[0] : 'Vision'}`}
               </Text>
               <ChevronDown size={11} color={C.muted} />
             </View>
@@ -3018,6 +3149,8 @@ function ChatScreen() {
             placeholder={
               attachment
                 ? 'Add instructions or tap Send…'
+                : responseLanguage === 'ur'
+                ? 'Ask IlyasKaGpt (Roman Urdu)…'
                 : 'Ask IlyasKaGpt…'
             }
             placeholderTextColor={C.muted}
@@ -3267,7 +3400,7 @@ function ChatScreen() {
                     styles.tabButtonText,
                     settingsTab === 'persona' && styles.tabButtonTextActive,
                   ]}>
-                  Persona
+                  Settings
                 </Text>
               </Pressable>
             </View>
@@ -3282,8 +3415,49 @@ function ChatScreen() {
                   <View style={styles.modelHubHeader}>
                     <Text style={styles.modelSectionTitle}>Available Offline Brains</Text>
                     <Text style={styles.settingHint}>
-                      Select or download models by category. Currently running {activeModel.name}.
+                      Select 1 Text Model and 1 Vision Model below. Both work together simultaneously.
                     </Text>
+                  </View>
+
+                  {/* Dual-Brain Active Setup Banner */}
+                  <View style={styles.dualBrainBanner}>
+                    <View style={styles.dualBrainBannerHeader}>
+                      <Sparkles size={14} color={C.accent} />
+                      <Text style={styles.dualBrainBannerTitle}>Dual-Brain Setup (1 Text + 1 Vision)</Text>
+                    </View>
+                    <Text style={styles.dualBrainBannerSub}>
+                      Your Text Brain handles written chats and reasoning, while your Vision Brain automatically takes over whenever you attach a photo.
+                    </Text>
+
+                    <View style={styles.dualBrainRow}>
+                      {/* Active Text Brain Pill */}
+                      <View style={[styles.dualBrainPill, { borderColor: C.accent }]}>
+                        <View style={styles.dualBrainPillTop}>
+                          <Brain size={12} color={C.accent} />
+                          <Text style={[styles.dualBrainPillLabel, { color: C.accent }]}>Active Text Brain</Text>
+                        </View>
+                        <Text style={styles.dualBrainPillName} numberOfLines={1}>
+                          {activeTextModel.name}
+                        </Text>
+                        <Text style={[styles.dualBrainPillStatus, { color: downloadedModels[activeTextModelId] ? '#059669' : '#D97706' }]}>
+                          {downloadedModels[activeTextModelId] ? '✓ Downloaded & Ready' : '⚠️ Download needed'}
+                        </Text>
+                      </View>
+
+                      {/* Active Vision Brain Pill */}
+                      <View style={[styles.dualBrainPill, { borderColor: '#7C3AED' }]}>
+                        <View style={styles.dualBrainPillTop}>
+                          <Camera size={12} color="#7C3AED" />
+                          <Text style={[styles.dualBrainPillLabel, { color: '#7C3AED' }]}>Active Vision Brain</Text>
+                        </View>
+                        <Text style={styles.dualBrainPillName} numberOfLines={1}>
+                          {activeVisionModel.name}
+                        </Text>
+                        <Text style={[styles.dualBrainPillStatus, { color: downloadedModels[activeVisionModelId] ? '#059669' : '#D97706' }]}>
+                          {downloadedModels[activeVisionModelId] ? '✓ Downloaded & Ready' : '⚠️ Download needed'}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
 
                   {/* Category Switcher Tabs */}
@@ -3398,9 +3572,17 @@ function ChatScreen() {
                                 <Text style={styles.modelActiveBadgeText}>Active & Running</Text>
                               </View>
                             ) : isDownloaded ? (
-                              <View style={styles.modelDownloadedBadge}>
-                                <HardDrive size={12} color={C.accent} />
-                                <Text style={styles.modelDownloadedBadgeText}>Downloaded</Text>
+                              <View style={m.category === 'vision' ? styles.modelVisionBadge : styles.modelTextBadge}>
+                                {m.category === 'vision' ? (
+                                  <Camera size={11} color="#7C3AED" />
+                                ) : (
+                                  <Brain size={11} color={C.accent} />
+                                )}
+                                <Text style={m.category === 'vision' ? styles.modelVisionBadgeText : styles.modelTextBadgeText}>
+                                  {m.category === 'vision'
+                                    ? m.id === activeVisionModelId ? 'Active Vision Brain' : 'Vision Ready'
+                                    : m.id === activeTextModelId ? 'Active Text Brain' : 'Text Ready'}
+                                </Text>
                               </View>
                             ) : (
                               <View style={styles.modelNotDownloadedBadge}>
@@ -3457,16 +3639,41 @@ function ChatScreen() {
                                 </View>
                               ) : isDownloaded ? (
                                 <>
-                                  {!isActive && (
-                                    <Pressable
-                                      style={({ pressed }) => [
-                                        styles.modelSwitchBtn,
-                                        pressed && styles.pressed,
-                                      ]}
-                                      onPress={() => switchModel(m.id)}>
-                                      <Zap size={12} color="#FFFFFF" />
-                                      <Text style={styles.modelSwitchBtnText}>Switch</Text>
-                                    </Pressable>
+                                  {m.category === 'text' ? (
+                                    m.id === activeTextModelId ? (
+                                      <View style={styles.modelSelectedPill}>
+                                        <Check size={12} color="#059669" />
+                                        <Text style={styles.modelSelectedPillText}>Active Text Brain</Text>
+                                      </View>
+                                    ) : (
+                                      <Pressable
+                                        style={({ pressed }) => [
+                                          styles.modelSwitchBtn,
+                                          pressed && styles.pressed,
+                                        ]}
+                                        onPress={() => activateModel(m.id, 'text')}>
+                                        <Brain size={12} color="#FFFFFF" />
+                                        <Text style={styles.modelSwitchBtnText}>Set as Text Brain</Text>
+                                      </Pressable>
+                                    )
+                                  ) : (
+                                    m.id === activeVisionModelId ? (
+                                      <View style={[styles.modelSelectedPill, { borderColor: '#DDD6FE', backgroundColor: '#F5F3FF' }]}>
+                                        <Check size={12} color="#7C3AED" />
+                                        <Text style={[styles.modelSelectedPillText, { color: '#7C3AED' }]}>Active Vision Brain</Text>
+                                      </View>
+                                    ) : (
+                                      <Pressable
+                                        style={({ pressed }) => [
+                                          styles.modelSwitchBtn,
+                                          { backgroundColor: '#7C3AED' },
+                                          pressed && styles.pressed,
+                                        ]}
+                                        onPress={() => activateModel(m.id, 'vision')}>
+                                        <Camera size={12} color="#FFFFFF" />
+                                        <Text style={styles.modelSwitchBtnText}>Set as Vision Brain</Text>
+                                      </Pressable>
+                                    )
                                   )}
                                   <Pressable
                                     style={({ pressed }) => [
@@ -3706,15 +3913,10 @@ function ChatScreen() {
                               </View>
 
                               <View style={styles.downloadedItemBottom}>
-                                {isCurrentlyRunning ? (
+                                {isSelectedText ? (
                                   <View style={styles.modelActiveBadge}>
                                     <Check size={12} color="#059669" />
-                                    <Text style={styles.modelActiveBadgeText}>Active in Chat</Text>
-                                  </View>
-                                ) : isSelectedText ? (
-                                  <View style={styles.modelSelectedBadge}>
-                                    <Check size={12} color={C.accent} />
-                                    <Text style={styles.modelSelectedBadgeText}>Selected for Text</Text>
+                                    <Text style={styles.modelActiveBadgeText}>Active Text Brain</Text>
                                   </View>
                                 ) : (
                                   <View style={styles.modelCachedBadge}>
@@ -3724,15 +3926,15 @@ function ChatScreen() {
                                 )}
 
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                  {!isCurrentlyRunning && (
+                                  {!isSelectedText && (
                                     <Pressable
                                       style={({ pressed }) => [
                                         styles.activateBtn,
                                         pressed && styles.pressed,
                                       ]}
                                       onPress={() => activateModel(m.id, 'text')}>
-                                      <Zap size={11} color="#FFFFFF" />
-                                      <Text style={styles.activateBtnText}>Activate</Text>
+                                      <Brain size={11} color="#FFFFFF" />
+                                      <Text style={styles.activateBtnText}>Set as Text Brain</Text>
                                     </Pressable>
                                   )}
                                   <Pressable
@@ -3816,15 +4018,10 @@ function ChatScreen() {
                               </View>
 
                               <View style={styles.downloadedItemBottom}>
-                                {isCurrentlyRunning ? (
-                                  <View style={styles.modelActiveBadge}>
-                                    <Check size={12} color="#059669" />
-                                    <Text style={styles.modelActiveBadgeText}>Active in Chat</Text>
-                                  </View>
-                                ) : isSelectedVision ? (
-                                  <View style={[styles.modelSelectedBadge, { backgroundColor: '#F3E8FF' }]}>
+                                {isSelectedVision ? (
+                                  <View style={[styles.modelActiveBadge, { borderColor: '#DDD6FE', backgroundColor: '#F5F3FF' }]}>
                                     <Check size={12} color="#7C3AED" />
-                                    <Text style={[styles.modelSelectedBadgeText, { color: '#7C3AED' }]}>Selected for Vision</Text>
+                                    <Text style={[styles.modelActiveBadgeText, { color: '#7C3AED' }]}>Active Vision Brain</Text>
                                   </View>
                                 ) : (
                                   <View style={styles.modelCachedBadge}>
@@ -3834,7 +4031,7 @@ function ChatScreen() {
                                 )}
 
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                  {!isCurrentlyRunning && (
+                                  {!isSelectedVision && (
                                     <Pressable
                                       style={({ pressed }) => [
                                         styles.activateBtn,
@@ -3842,8 +4039,8 @@ function ChatScreen() {
                                         pressed && styles.pressed,
                                       ]}
                                       onPress={() => activateModel(m.id, 'vision')}>
-                                      <Zap size={11} color="#FFFFFF" />
-                                      <Text style={styles.activateBtnText}>Activate</Text>
+                                      <Camera size={11} color="#FFFFFF" />
+                                      <Text style={styles.activateBtnText}>Set as Vision Brain</Text>
                                     </Pressable>
                                   )}
                                   <Pressable
@@ -3868,6 +4065,97 @@ function ChatScreen() {
               ) : (
                 /* Tab 2: Persona & Instructions */
                 <View>
+                  {/* AI Response Language Selector (English & Roman Urdu Buttons) */}
+                  <View style={styles.languageCard}>
+                    <View style={styles.languageCardHeader}>
+                      <View style={styles.languageIconBadge}>
+                        <Sparkles size={15} color={C.accent} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.languageCardTitle}>AI Response Language</Text>
+                        <Text style={styles.languageCardDesc}>
+                          Control which language the AI uses to reply. You can ask prompts in any language.
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.languageButtonsRow}>
+                      {/* Button 1: English */}
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.languageBtn,
+                          responseLanguage === 'en' && styles.languageBtnActive,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => updateResponseLanguage('en')}>
+                        <View style={styles.languageBtnTop}>
+                          <View
+                            style={[
+                              styles.languageRadio,
+                              responseLanguage === 'en' && styles.languageRadioActive,
+                            ]}>
+                            {responseLanguage === 'en' && <View style={styles.languageRadioDot} />}
+                          </View>
+                          <Text
+                            style={[
+                              styles.languageBtnLabel,
+                              responseLanguage === 'en' && styles.languageBtnLabelActive,
+                            ]}>
+                            English
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.languageBtnSub,
+                            responseLanguage === 'en' && styles.languageBtnSubActive,
+                          ]}>
+                          Standard English replies. Blocks Chinese/Japanese.
+                        </Text>
+                      </Pressable>
+
+                      {/* Button 2: Roman Urdu */}
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.languageBtn,
+                          responseLanguage === 'ur' && styles.languageBtnActive,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => updateResponseLanguage('ur')}>
+                        <View style={styles.languageBtnTop}>
+                          <View
+                            style={[
+                              styles.languageRadio,
+                              responseLanguage === 'ur' && styles.languageRadioActive,
+                            ]}>
+                            {responseLanguage === 'ur' && <View style={styles.languageRadioDot} />}
+                          </View>
+                          <Text
+                            style={[
+                              styles.languageBtnLabel,
+                              responseLanguage === 'ur' && styles.languageBtnLabelActive,
+                            ]}>
+                            Roman Urdu
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.languageBtnSub,
+                            responseLanguage === 'ur' && styles.languageBtnSubActive,
+                          ]}>
+                          Urdu in English alphabet (e.g. agar tum ne...)
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.languageActiveBanner}>
+                      <Text style={styles.languageActiveBannerText}>
+                        {responseLanguage === 'ur'
+                          ? '🇵🇰 Active Mode: AI will reply in Roman Urdu (English alphabet).'
+                          : '🇬🇧 Active Mode: AI will reply strictly in English.'}
+                      </Text>
+                    </View>
+                  </View>
+
                   <View style={styles.settingLabelRow}>
                     <Text style={styles.settingLabel}>Custom Instructions & Persona</Text>
                     <Pressable
@@ -4387,7 +4675,7 @@ function renderMarkdownBlock(text: string, blockIndex: number): React.ReactNode 
   flushParagraph(lines.length);
 
   return (
-    <View key={`b${blockIndex}_container`} style={{ gap: 2 }}>
+    <View key={`b${blockIndex}_container`} style={styles.markdownBlockContainer}>
       {elements}
     </View>
   );
@@ -4655,7 +4943,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: -0.1,
-    maxWidth: 140,
+    flexShrink: 1,
+    maxWidth: 220,
   },
   headerRight: {
     flexDirection: 'row',
@@ -4716,13 +5005,13 @@ const styles = StyleSheet.create({
 
   // Message Bubbles
   bubble: {
-    maxWidth: '88%',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   userBubble: {
     alignSelf: 'flex-end',
+    maxWidth: '85%',
     backgroundColor: C.accent,
     borderBottomRightRadius: 4,
     shadowColor: C.accent,
@@ -4739,7 +5028,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderBottomRightRadius: 4,
     padding: 8,
-    maxWidth: '88%',
+    maxWidth: '85%',
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowOffset: { width: 0, height: 2 },
@@ -4754,11 +5043,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   botBubble: {
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
+    width: '100%',
+    maxWidth: '100%',
     backgroundColor: C.surface,
     borderWidth: 1,
     borderColor: C.border,
-    borderBottomLeftRadius: 4,
+    borderRadius: 20,
+    borderBottomLeftRadius: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
@@ -4769,7 +5063,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    width: '100%',
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.04)',
   },
   botHeaderLeft: {
     flexDirection: 'row',
@@ -6120,6 +6418,7 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
   },
   headingBlock: {
+    width: '100%',
     marginTop: 10,
     marginBottom: 4,
     flexDirection: 'row',
@@ -6133,44 +6432,53 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   heading1Text: {
+    flex: 1,
+    flexShrink: 1,
     fontSize: 18,
     fontWeight: '800',
     color: C.text,
     letterSpacing: -0.2,
   },
   heading2Text: {
+    flex: 1,
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '800',
     color: C.text,
     letterSpacing: -0.1,
   },
   heading3Text: {
+    flex: 1,
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '700',
     color: C.text,
   },
   bulletRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginTop: 4,
     marginBottom: 2,
-    paddingLeft: 4,
+    paddingLeft: 2,
   },
   bulletDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: C.accent,
-    marginTop: 7,
+    marginTop: 8,
     marginRight: 8,
   },
   bulletText: {
     flex: 1,
+    flexShrink: 1,
     color: C.text,
     fontSize: 14.5,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   numberedRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginTop: 4,
@@ -6195,11 +6503,13 @@ const styles = StyleSheet.create({
   },
   numberedText: {
     flex: 1,
+    flexShrink: 1,
     color: C.text,
     fontSize: 14.5,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   blockquoteBlock: {
+    width: '100%',
     borderLeftWidth: 3,
     borderLeftColor: C.accent,
     backgroundColor: C.surface2,
@@ -6213,15 +6523,231 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontStyle: 'italic',
     lineHeight: 20,
+    flexShrink: 1,
   },
   markdownDivider: {
+    width: '100%',
     height: 1,
     backgroundColor: C.border,
     marginVertical: 10,
   },
+  markdownBlockContainer: {
+    width: '100%',
+    gap: 4,
+  },
   paragraphSpacing: {
     marginBottom: 6,
+  },
+  // Language Setting Styles
+  languageCard: {
+    backgroundColor: C.surface2,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 16,
+  },
+  languageCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  languageIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  languageCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.text,
+  },
+  languageCardDesc: {
+    fontSize: 12,
+    color: C.textSecondary,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  languageButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  languageBtn: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    borderRadius: 14,
+    padding: 12,
+  },
+  languageBtnActive: {
+    borderColor: C.accent,
+    backgroundColor: '#F5F3FF',
+  },
+  languageBtnTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  languageRadio: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: C.muted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  languageRadioActive: {
+    borderColor: C.accent,
+  },
+  languageRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.accent,
+  },
+  languageBtnLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.text,
+  },
+  languageBtnLabelActive: {
+    color: C.accent,
+  },
+  languageBtnSub: {
+    fontSize: 11,
+    color: C.textSecondary,
+    lineHeight: 15,
+  },
+  languageBtnSubActive: {
+    color: C.text,
+  },
+  languageActiveBanner: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    borderRadius: 10,
+  },
+  languageActiveBannerText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: C.accent,
+  },
+  // Dual-Brain Styles
+  dualBrainBanner: {
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 14,
+  },
+  dualBrainBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  dualBrainBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.text,
+  },
+  dualBrainBannerSub: {
+    fontSize: 12,
+    color: C.textSecondary,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  dualBrainRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dualBrainPill: {
+    flex: 1,
+    backgroundColor: C.surface2,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1.5,
+  },
+  dualBrainPillTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+  },
+  dualBrainPillLabel: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  dualBrainPillName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.text,
+  },
+  dualBrainPillStatus: {
+    fontSize: 11,
+    color: '#059669',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  modelTextBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  modelTextBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: C.accent,
+  },
+  modelVisionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  modelVisionBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#7C3AED',
+  },
+  modelSelectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
+  },
+  modelSelectedPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
   },
 });
 
 export default App;
+
+
