@@ -1063,9 +1063,11 @@ function ChatScreen() {
         fromUrl,
         toFile: tempFilePath,
         headers,
-        background: true,
+        background: false,
         discretionary: false,
-        progressInterval: 300,
+        progressInterval: 250,
+        readTimeout: 45000,
+        connectionTimeout: 20000,
         resumable: () => {},
         begin: res => {
           downloadJobsRef.current[model.id] = res.jobId;

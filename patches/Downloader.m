@@ -65,6 +65,8 @@
   config.timeoutIntervalForRequest = [_params.readTimeout intValue] / 1000.0;
   config.timeoutIntervalForResource = [_params.backgroundTimeout intValue] / 1000.0;
 
+  self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
+
   NSString *resumePath = [_params.toFile stringByAppendingString:@".resumeData"];
   if ([[NSFileManager defaultManager] fileExistsAtPath:resumePath]) {
     NSData *savedResumeData = [NSData dataWithContentsOfFile:resumePath];
