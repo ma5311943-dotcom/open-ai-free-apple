@@ -247,7 +247,55 @@ const SYSTEM_PROMPT =
   'Avoid giant unbroken walls of plain text. Keep answers well-spaced, clean, and easily scannable. ' +
   'Answer accurately in any language requested (English, Urdu, Hindi, Arabic, etc.). ' +
   'When an image or screenshot is attached, accurately inspect all visual details, identify the application interface, read all visible text, and answer questions directly without guessing.';
-const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '</s>', '<|eot_id|>'];
+const STOP_WORDS = [
+  '<|im_end|>',
+  '<|endoftext|>',
+  '</s>',
+  '<|eot_id|>',
+  '<|end|>',
+  '<|assistant|>',
+  '<|end_of_text|>',
+  '[INST]',
+  '[/INST]',
+];
+
+/**
+ * Cleans garbled / corrupted token output produced by partial UTF-8 byte sequences.
+ * This happens on some GGUF models (e.g. Qwen2.5-3B) when the tokenizer emits
+ * replacement characters instead of valid text.
+ */
+function cleanGarbledTokens(text: string): string {
+  if (!text) return text;
+
+  // Specific pattern: diamond glyph (◆) immediately followed by a diacritic vowel + 'u'
+  // e.g. ◆ēu, ◆āu, ◆ūu — exact signature of Qwen2.5-3B byte-level corruption
+  const specificGarbledPattern = /[◆◇\u25C6\u25C7][āēīōūǎěǐǒǔ\u0101\u0113\u012B\u014D\u016B]u/g;
+
+  // Count how many of these specific garbled triplets appear
+  const garbledMatches = text.match(specificGarbledPattern) || [];
+  // Also count raw replacement character
+  const replacementCount =
+    (text.match(/\uFFFD/g) || []).length + garbledMatches.length;
+  const totalChars = text.replace(/\s/g, '').length;
+
+  // If >25% of non-space content is garbled, discard the whole response
+  if (totalChars > 5 && replacementCount / totalChars > 0.25) {
+    return '';
+  }
+
+  return text
+    // Remove Unicode replacement character
+    .replace(/\uFFFD/g, '')
+    // Remove the specific diamond+diacritic+u garbage triplets
+    .replace(specificGarbledPattern, '')
+    // Remove diamond/box glyphs followed by short lowercase sequences (byte artifacts)
+    .replace(/[◆◇□■▪▫](?=[a-z\u0101\u0113\u012B\u014D\u016B]{1,3}(?:\s|-|$))/g, '')
+    // Remove leading ?XX- junk prefix (e.g. "?KP-" at start of corrupted output)
+    .replace(/^\?[A-Z]{1,3}-/, '')
+    // Remove non-printable control characters (except \n, \t, \r)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .trim();
+}
 const OCR_API_KEYS = ['helloworld', 'K88796853688957'];
 
 type Phase = 'checking' | 'downloading' | 'loading' | 'ready' | 'error';
@@ -597,7 +645,7 @@ function ChatScreen() {
   isSpeakingRef.current = isSpeaking;
   const isRecordingRef = useRef(isRecording);
   isRecordingRef.current = isRecording;
-  const toggleRecordingRef = useRef<() => Promise<void> | void>(() => {});
+  const toggleRecordingRef = useRef<() => Promise<void> | void>(() => { });
   const voiceResponseEnabledRef = useRef(voiceResponseEnabled);
   voiceResponseEnabledRef.current = voiceResponseEnabled;
   const silenceTimerRef = useRef<any>(null);
@@ -694,7 +742,7 @@ function ChatScreen() {
         if (Object.keys(foundTasks).length > 0) {
           setDownloadTasks(prev => ({ ...prev, ...foundTasks }));
         }
-      } catch {}
+      } catch { }
     })();
   }, [refreshDownloadedStatus]);
 
@@ -718,7 +766,7 @@ function ChatScreen() {
             setMessages(active.messages || []);
             return;
           }
-        } catch {}
+        } catch { }
       }
       const initialId = `${Date.now()}`;
       const defaultSession: ChatSession = {
@@ -779,7 +827,7 @@ function ChatScreen() {
         updated.unshift(newSession);
       }
 
-      RNFS.writeFile(SESSIONS_PATH, JSON.stringify(updated), 'utf8').catch(() => {});
+      RNFS.writeFile(SESSIONS_PATH, JSON.stringify(updated), 'utf8').catch(() => { });
       return updated;
     });
   }, [currentSessionId]);
@@ -797,7 +845,7 @@ function ChatScreen() {
     setSessions(prev => {
       const filtered = prev.filter(s => s.messages.length > 0);
       const next = [newSession, ...filtered];
-      RNFS.writeFile(SESSIONS_PATH, JSON.stringify(next), 'utf8').catch(() => {});
+      RNFS.writeFile(SESSIONS_PATH, JSON.stringify(next), 'utf8').catch(() => { });
       return next;
     });
     setCurrentSessionId(newId);
@@ -841,7 +889,7 @@ function ChatScreen() {
                   },
                 ];
               }
-              RNFS.writeFile(SESSIONS_PATH, JSON.stringify(nextSessions), 'utf8').catch(() => {});
+              RNFS.writeFile(SESSIONS_PATH, JSON.stringify(nextSessions), 'utf8').catch(() => { });
 
               if (sessionId === currentSessionId) {
                 const target = nextSessions[0];
@@ -883,7 +931,7 @@ function ChatScreen() {
             try {
               await RNFS.writeFile(SESSIONS_PATH, JSON.stringify([freshSession]), 'utf8');
               Alert.alert('History Cleared', 'All chat sessions deleted and storage freed.');
-            } catch {}
+            } catch { }
           },
         },
       ],
@@ -913,7 +961,7 @@ function ChatScreen() {
     if (jobId !== null && jobId !== undefined) {
       try {
         RNFS.stopDownload(jobId);
-      } catch {}
+      } catch { }
       downloadJobsRef.current[modelId] = null;
     }
     setDownloadTasks(prev => {
@@ -938,7 +986,7 @@ function ChatScreen() {
     if (jobId !== null && jobId !== undefined) {
       try {
         RNFS.stopDownload(jobId);
-      } catch {}
+      } catch { }
       downloadJobsRef.current[modelId] = null;
     }
     const model = AVAILABLE_MODELS.find(m => m.id === modelId);
@@ -954,7 +1002,7 @@ function ChatScreen() {
           if (await RNFS.exists(tempMm)) await RNFS.unlink(tempMm);
           if (await RNFS.exists(resumeMm)) await RNFS.unlink(resumeMm);
         }
-      } catch {}
+      } catch { }
     }
     setDownloadTasks(prev => {
       const copy = { ...prev };
@@ -1011,7 +1059,7 @@ function ChatScreen() {
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       try {
         await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-      } catch {}
+      } catch { }
     }
 
     // Download a single file part with HTTP Range resume support
@@ -1079,7 +1127,7 @@ function ChatScreen() {
         progressInterval: 250,
         readTimeout: 45000,
         connectionTimeout: 20000,
-        resumable: () => {},
+        resumable: () => { },
         begin: res => {
           downloadJobsRef.current[model.id] = res.jobId;
           speedCalcMapRef.current[model.id] = { lastBytes: existingBytes, lastTime: Date.now() };
@@ -1288,7 +1336,7 @@ function ChatScreen() {
       if (ctxRef.current) {
         try {
           ctxRef.current.release();
-        } catch {}
+        } catch { }
         ctxRef.current = null;
       }
 
@@ -1445,7 +1493,7 @@ function ChatScreen() {
           }
         }
       });
-    } catch {}
+    } catch { }
 
     return () => {
       subStart?.remove?.();
@@ -1457,7 +1505,7 @@ function ChatScreen() {
       }
       try {
         NativeSpeech.stopSpeaking?.();
-      } catch {}
+      } catch { }
     };
   }, []);
 
@@ -1467,7 +1515,7 @@ function ChatScreen() {
       if (NativeSpeech && typeof NativeSpeech.stopSpeaking === 'function') {
         await NativeSpeech.stopSpeaking();
       }
-    } catch {}
+    } catch { }
     setIsSpeaking(false);
     setSpeakingMsgId(null);
   }, []);
@@ -1550,7 +1598,7 @@ function ChatScreen() {
         }),
         'utf8',
       );
-    } catch {}
+    } catch { }
   }, [voiceResponseEnabled, stopSpeaking]);
 
   const switchModel = async (newId: string) => {
@@ -1580,7 +1628,7 @@ function ChatScreen() {
         }),
         'utf8',
       );
-    } catch {}
+    } catch { }
     prepareModel(newId);
   };
 
@@ -1673,7 +1721,7 @@ function ChatScreen() {
           }),
           'utf8',
         );
-      } catch {}
+      } catch { }
     },
     [],
   );
@@ -1696,7 +1744,7 @@ function ChatScreen() {
         }),
         'utf8',
       );
-    } catch {}
+    } catch { }
   }, [
     tempPrompt,
     selectedModelId,
@@ -1746,7 +1794,7 @@ function ChatScreen() {
         Alert.alert(
           'Voice Notice',
           (err?.message || 'Could not finalize voice recording.') +
-            '\n\nTip: You can also tap the microphone key on your keyboard for voice input.',
+          '\n\nTip: You can also tap the microphone key on your keyboard for voice input.',
         );
       }
     } else {
@@ -1802,7 +1850,7 @@ function ChatScreen() {
         Alert.alert(
           'Voice Notice',
           (err?.message || 'Could not start voice recording.') +
-            '\n\nTip: You can also tap the microphone icon on your keyboard for offline dictation anytime!',
+          '\n\nTip: You can also tap the microphone icon on your keyboard for offline dictation anytime!',
         );
       }
     }
@@ -2110,8 +2158,8 @@ function ChatScreen() {
         rawText ||
         (currentAttach?.type === 'image'
           ? (currentAttach.extractedText
-              ? 'Analyze the text from this image:'
-              : 'Analyze this photo:')
+            ? 'Analyze the text from this image:'
+            : 'Analyze this photo:')
           : 'Summarize this document:');
       const userMsg: Message = {
         id: `${Date.now()}u`,
@@ -2250,6 +2298,8 @@ function ChatScreen() {
             if (responseLanguage === 'en' || responseLanguage === 'ur') {
               token = token.replace(/[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\u31F0-\u31FF\uFF65-\uFF9F]/g, '');
             }
+            // Clean garbled/corrupted UTF-8 byte artifacts (e.g. ?KP-n◆ēu from Qwen3B)
+            token = cleanGarbledTokens(token);
             streamed += token;
             sentenceBuffer += token;
 
@@ -2275,6 +2325,12 @@ function ChatScreen() {
         let finalText = (result.text || streamed).trim();
         if (responseLanguage === 'en' || responseLanguage === 'ur') {
           finalText = finalText.replace(/[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\u31F0-\u31FF\uFF65-\uFF9F]/g, '').trim();
+        }
+        // Final pass: clean any remaining garbled characters
+        finalText = cleanGarbledTokens(finalText);
+        // If entire response is garbage, show a friendly error
+        if (!finalText || finalText.length < 2) {
+          finalText = '⚠️ The model produced an unreadable response. Try reloading the model or switching to Qwen2.5 1.5B / Llama 3.2 3B for better stability.';
         }
         const finalList: Message[] = [
           ...messages,
@@ -2500,14 +2556,14 @@ function ChatScreen() {
               error.toLowerCase().includes('ram') ||
               error.toLowerCase().includes('memory') ||
               error.toLowerCase().includes('load model')) && (
-              <View style={styles.ramWarningBox}>
-                <Text style={styles.ramWarningTitle}>💡 RAM Limit Advisory</Text>
-                <Text style={styles.ramWarningText}>
-                  Large models (like 14B) require 9GB+ of continuous RAM, which exceeds mobile app limits.
-                  Switch to <Text style={{ fontWeight: '700' }}>Qwen2.5 1.5B Fast</Text> or <Text style={{ fontWeight: '700' }}>3B Smart</Text> for smooth offline performance on this phone.
-                </Text>
-              </View>
-            )}
+                <View style={styles.ramWarningBox}>
+                  <Text style={styles.ramWarningTitle}>💡 RAM Limit Advisory</Text>
+                  <Text style={styles.ramWarningText}>
+                    Large models (like 14B) require 9GB+ of continuous RAM, which exceeds mobile app limits.
+                    Switch to <Text style={{ fontWeight: '700' }}>Qwen2.5 1.5B Fast</Text> or <Text style={{ fontWeight: '700' }}>3B Smart</Text> for smooth offline performance on this phone.
+                  </Text>
+                </View>
+              )}
 
             <View style={{ gap: 9, marginTop: 14, width: '100%' }}>
               {/* Option 1: Switch to Recommended Safe Model (1-tap rescue) */}
@@ -2753,11 +2809,11 @@ function ChatScreen() {
                 <Text style={styles.miniDownloadStats} numberOfLines={1}>
                   {isMulti
                     ? activeList
-                        .map(
-                          t =>
-                            `${AVAILABLE_MODELS.find(m => m.id === t.modelId)?.name.split(' ')[0] || t.modelId} (${Math.round(t.progress * 100)}%)`,
-                        )
-                        .join(' · ')
+                      .map(
+                        t =>
+                          `${AVAILABLE_MODELS.find(m => m.id === t.modelId)?.name.split(' ')[0] || t.modelId} (${Math.round(t.progress * 100)}%)`,
+                      )
+                      .join(' · ')
                     : `${formatMBOnly(first.bytesWritten)} / ${formatMBOnly(first.totalBytes)}${first.speed ? ` · ${first.speed}` : ''}${first.eta ? ` · ${first.eta}` : ''}`}
                 </Text>
               </View>
@@ -3078,12 +3134,12 @@ function ChatScreen() {
                 {attachment.isExtracting
                   ? 'Analyzing attachment…'
                   : attachment.type === 'image'
-                  ? activeModel.category === 'vision' && isMultimodalReady
-                    ? '👁️ Multimodal Vision ready (Direct pixel analysis)'
-                    : attachment.extractedText
-                    ? `Text extracted: "${attachment.extractedText.slice(0, 25)}…"`
-                    : 'Photo attached · Text AI mode (no OCR text found)'
-                  : 'Document attached' + (attachment.extractedText ? ' · Text extracted' : '')}
+                    ? activeModel.category === 'vision' && isMultimodalReady
+                      ? '👁️ Multimodal Vision ready (Direct pixel analysis)'
+                      : attachment.extractedText
+                        ? `Text extracted: "${attachment.extractedText.slice(0, 25)}…"`
+                        : 'Photo attached · Text AI mode (no OCR text found)'
+                    : 'Document attached' + (attachment.extractedText ? ' · Text extracted' : '')}
               </Text>
             </View>
             {attachment.type === 'image' && activeModel.category !== 'vision' && (
@@ -3150,8 +3206,8 @@ function ChatScreen() {
               attachment
                 ? 'Add instructions or tap Send…'
                 : responseLanguage === 'ur'
-                ? 'Ask IlyasKaGpt (Roman Urdu)…'
-                : 'Ask IlyasKaGpt…'
+                  ? 'Ask IlyasKaGpt (Roman Urdu)…'
+                  : 'Ask IlyasKaGpt…'
             }
             placeholderTextColor={C.muted}
             multiline
@@ -3303,8 +3359,8 @@ function ChatScreen() {
                   {settingsTab === 'models'
                     ? 'On-Device AI Models'
                     : settingsTab === 'downloads'
-                    ? 'Downloads & Active Brains'
-                    : 'Personalization & Persona'}
+                      ? 'Downloads & Active Brains'
+                      : 'Personalization & Persona'}
                 </Text>
               </View>
               <View style={styles.modalHeaderActions}>
