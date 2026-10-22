@@ -31,6 +31,7 @@ import {
 import RNFS from 'react-native-fs';
 import { initLlama, LlamaContext } from 'llama.rn';
 import {
+  AlertTriangle,
   Brain,
   Camera,
   Check,
@@ -51,7 +52,10 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  Pause,
+  Play,
   Plus,
+  RefreshCw,
   Send,
   Settings,
   Sparkles,
@@ -82,32 +86,70 @@ export type ModelOption = {
   size: number;
   description: string;
   tag: string;
+  isRecommended?: boolean;
+  isHighRam?: boolean;
+  ramWarning?: string;
   mmprojFile?: string;
   mmprojUrl?: string;
   mmprojSize?: number;
 };
 
 export const AVAILABLE_MODELS: ModelOption[] = [
-  // --- Text Reasoning Brains ---
+  // --- Recommended Lightweight Text Brains (Run Smoothly on all Phones) ---
   {
-    id: 'qwen2.5-14b',
+    id: 'qwen2.5-1.5b',
     category: 'text',
-    name: 'Qwen2.5 14B Ultra Genius',
-    file: 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
-    url: 'https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf',
-    size: 8988110976,
-    description: 'Ultra-intelligent 14B brain (Rivals GPT-4o-mini). Exceptional multi-step reasoning, advanced coding & all languages.',
-    tag: 'Text Ultra · 9.0 GB',
+    name: 'Qwen2.5 1.5B Fast',
+    file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    size: 1117320736,
+    description: 'Fast, responsive on-device assistant. Instant responses, minimal battery & RAM usage. 100% stable offline.',
+    tag: '⚡ Recommended · 1.1 GB',
+    isRecommended: true,
   },
   {
-    id: 'qwen2.5-7b',
+    id: 'smollm2-1.7b',
     category: 'text',
-    name: 'Qwen2.5 7B Super Genius',
-    file: 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',
-    url: 'https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf',
-    size: 4683074240,
-    description: 'High-intelligence 7B model. Outstanding logic, programming, mathematics & multilingual fluency.',
-    tag: 'Text Genius · 4.7 GB',
+    name: 'SmolLM2 1.7B Instruct',
+    file: 'SmolLM2-1.7B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf',
+    size: 1055609824,
+    description: 'Latest high-efficiency compact model from HuggingFace. Superb reasoning, writing & knowledge with low memory.',
+    tag: '⚡ Recommended · 1.05 GB',
+    isRecommended: true,
+  },
+  {
+    id: 'llama-3.2-1b',
+    category: 'text',
+    name: 'Llama 3.2 1B Ultra-Light',
+    file: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    size: 807694464,
+    description: 'Meta’s ultra-compact 1B flagship model. Lightning-fast inference on any device with tiny memory footprint.',
+    tag: '⚡ Ultra-Light · 808 MB',
+    isRecommended: true,
+  },
+  {
+    id: 'deepseek-r1-1.5b',
+    category: 'text',
+    name: 'DeepSeek R1 Distill 1.5B',
+    file: 'DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
+    size: 1117320800,
+    description: 'DeepSeek’s revolutionary reasoning model. Solves complex logic and math step-by-step directly on your phone.',
+    tag: '🧠 Deep Reasoning · 1.1 GB',
+    isRecommended: true,
+  },
+  {
+    id: 'llama-3.2-3b',
+    category: 'text',
+    name: 'Llama 3.2 3B Smart',
+    file: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    size: 2019377696,
+    description: 'Meta’s cutting-edge 3B model. Outstanding comprehension, dialogue, coding, and multi-turn instruction following.',
+    tag: 'Text Smart · 2.0 GB',
+    isRecommended: true,
   },
   {
     id: 'qwen2.5-3b',
@@ -118,19 +160,61 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     size: 2104932768,
     description: 'Genius Multilingual AI (Urdu, English, Hindi, Arabic, 29+ languages, Fast & Smart).',
     tag: 'Text Smart · 2.1 GB',
+    isRecommended: true,
   },
   {
-    id: 'qwen2.5-1.5b',
+    id: 'qwen2.5-0.5b',
     category: 'text',
-    name: 'Qwen2.5 1.5B Fast',
-    file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    size: 1117320736,
-    description: 'Fast & Lightweight on-device assistant. Instant responses, minimal battery & RAM usage.',
-    tag: 'Text Fast · 1.1 GB',
+    name: 'Qwen2.5 0.5B Pocket',
+    file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    size: 491400032,
+    description: 'Pocket-sized AI. Instant boot-up, zero latency, runs even on the lowest RAM devices.',
+    tag: 'Pocket AI · 491 MB',
+    isRecommended: true,
+  },
+
+  // --- High RAM Text Brains ---
+  {
+    id: 'qwen2.5-7b',
+    category: 'text',
+    name: 'Qwen2.5 7B Super Genius',
+    file: 'Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+    size: 4683074240,
+    description: 'High-intelligence 7B model. Outstanding logic, programming & mathematics. Requires 6GB+ RAM device.',
+    tag: 'Text Genius · 4.7 GB',
+    isHighRam: true,
+    ramWarning: 'Requires device with 6GB+ RAM',
+  },
+  {
+    id: 'qwen2.5-14b',
+    category: 'text',
+    name: 'Qwen2.5 14B Ultra Genius',
+    file: 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+    size: 8988110976,
+    description: 'Ultra-intelligent 14B brain (Rivals GPT-4o-mini). Notice: Requires 9GB+ RAM (Mac/PC or 12GB+ RAM flagship phone).',
+    tag: 'Text Ultra · 9.0 GB',
+    isHighRam: true,
+    ramWarning: '⚠️ Requires 9GB+ RAM · Exceeds standard phone limits',
   },
 
   // --- Vision & Multimodal Brains ---
+  {
+    id: 'qwen2-vl-2b',
+    category: 'vision',
+    name: 'Qwen2-VL 2B Vision Fast',
+    file: 'Qwen2-VL-2B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/Qwen2-VL-2B-Instruct-Q4_K_M.gguf',
+    size: 986047232,
+    mmprojFile: 'mmproj-Qwen2-VL-2B-Instruct-f16.gguf',
+    mmprojUrl: 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-2B-Instruct-f16.gguf',
+    mmprojSize: 1331656192,
+    description: 'High-speed offline Vision AI. Light RAM footprint, instant pixel visual analysis for screenshots & camera photos.',
+    tag: '⚡ Vision Fast · 2.3 GB',
+    isRecommended: true,
+  },
   {
     id: 'qwen2-vl-7b',
     category: 'vision',
@@ -143,19 +227,8 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     mmprojSize: 1352635904,
     description: 'Top-tier offline Vision AI. Directly sees WhatsApp screens, UI layouts, diagrams & real photos with high visual precision.',
     tag: 'Vision Master · 6.0 GB',
-  },
-  {
-    id: 'qwen2-vl-2b',
-    category: 'vision',
-    name: 'Qwen2-VL 2B Vision Fast',
-    file: 'Qwen2-VL-2B-Instruct-Q4_K_M.gguf',
-    url: 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/Qwen2-VL-2B-Instruct-Q4_K_M.gguf',
-    size: 986047232,
-    mmprojFile: 'mmproj-Qwen2-VL-2B-Instruct-f16.gguf',
-    mmprojUrl: 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-2B-Instruct-f16.gguf',
-    mmprojSize: 1331656192,
-    description: 'High-speed offline Vision AI. Light RAM footprint, instant pixel visual analysis for screenshots & camera photos.',
-    tag: 'Vision Fast · 2.3 GB',
+    isHighRam: true,
+    ramWarning: 'Requires 6GB+ RAM',
   },
 ];
 
@@ -163,9 +236,15 @@ const SETTINGS_PATH = `${RNFS.DocumentDirectoryPath}/settings.json`;
 const SESSIONS_PATH = `${RNFS.DocumentDirectoryPath}/chat_sessions.json`;
 
 const SYSTEM_PROMPT =
-  'You are a helpful, concise AI assistant running on-device. ' +
-  'Answer clearly and accurately in any language requested (English, Urdu, Hindi, Arabic, etc.). ' +
-  'When an image or screenshot is attached, accurately inspect all visual details, identify the application interface (e.g. WhatsApp, Telegram, Android/iOS System, or Camera Photo), read all visible text, and answer questions directly without guessing or hallucinating.';
+  'You are IlyasKaGpt, a smart, fast and helpful on-device AI assistant. ' +
+  'Always format your responses with clean, structured markdown: ' +
+  'use clear headings (### Section Title) to organize answers, ' +
+  'use bullet points (•) for key points, lists, and takeaways, ' +
+  'use numbered lists (1., 2., 3.) for step-by-step procedures, ' +
+  'use bold keywords (**term**) for emphasis, and use code blocks (```language ... ```) for code snippets and commands. ' +
+  'Avoid giant unbroken walls of plain text. Keep answers well-spaced, clean, and easily scannable. ' +
+  'Answer accurately in any language requested (English, Urdu, Hindi, Arabic, etc.). ' +
+  'When an image or screenshot is attached, accurately inspect all visual details, identify the application interface, read all visible text, and answer questions directly without guessing.';
 const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '</s>', '<|eot_id|>'];
 const OCR_API_KEYS = ['helloworld', 'K88796853688957'];
 
@@ -193,6 +272,19 @@ export type ChatSession = {
   createdAt: number;
   updatedAt: number;
   messages: Message[];
+};
+
+export type ActiveDownloadTask = {
+  modelId: string;
+  jobId: number | null;
+  status: 'downloading' | 'paused' | 'completed' | 'error';
+  currentPart: 'main' | 'mmproj';
+  partTitle: string;
+  bytesWritten: number;
+  totalBytes: number;
+  progress: number;
+  speed: string;
+  eta: string;
 };
 
 // Helper to guarantee images are readable local files for llama.rn native C++ engine
@@ -474,6 +566,14 @@ function ChatScreen() {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const isPickingMediaRef = useRef(false);
 
+  // Multi-download manager state (supports 2+ concurrent downloads, pause, and resume)
+  const [downloadTasks, setDownloadTasks] = useState<Record<string, ActiveDownloadTask>>({});
+  const downloadTasksRef = useRef<Record<string, ActiveDownloadTask>>({});
+  downloadTasksRef.current = downloadTasks;
+  const downloadJobsRef = useRef<Record<string, number | null>>({});
+  const speedCalcMapRef = useRef<Record<string, { lastBytes: number; lastTime: number }>>({});
+  const isPausedMapRef = useRef<Record<string, boolean>>({});
+
   // Model hub: track which models are downloaded on device storage
   const [downloadedModels, setDownloadedModels] = useState<Record<string, boolean>>({});
   const downloadJobIdRef = useRef<number | null>(null);
@@ -546,20 +646,42 @@ function ChatScreen() {
 
   useEffect(() => {
     refreshDownloadedStatus();
-    // Auto-clean any leftover .part files from previous interrupted downloads to free up device storage
+    // Scan for any paused or interrupted downloads on device storage so user can resume
     (async () => {
       try {
+        const foundTasks: Record<string, ActiveDownloadTask> = {};
         for (const m of AVAILABLE_MODELS) {
           const tempPath = `${RNFS.DocumentDirectoryPath}/${m.file}.part`;
+          let existingBytes = 0;
           if (await RNFS.exists(tempPath)) {
-            await RNFS.unlink(tempPath);
+            const s = await RNFS.stat(tempPath);
+            existingBytes += Number(s.size);
           }
           if (m.mmprojFile) {
             const tempMmPath = `${RNFS.DocumentDirectoryPath}/${m.mmprojFile}.part`;
             if (await RNFS.exists(tempMmPath)) {
-              await RNFS.unlink(tempMmPath);
+              const s = await RNFS.stat(tempMmPath);
+              existingBytes += Number(s.size);
             }
           }
+          const totalExpected = m.size + (m.mmprojSize || 0);
+          if (existingBytes > 0 && existingBytes < totalExpected) {
+            foundTasks[m.id] = {
+              modelId: m.id,
+              jobId: null,
+              status: 'paused',
+              currentPart: 'main',
+              partTitle: `Paused at ${formatMBOnly(existingBytes)}`,
+              bytesWritten: existingBytes,
+              totalBytes: totalExpected,
+              progress: Math.min(1, Math.max(0, existingBytes / totalExpected)),
+              speed: 'Paused',
+              eta: '',
+            };
+          }
+        }
+        if (Object.keys(foundTasks).length > 0) {
+          setDownloadTasks(prev => ({ ...prev, ...foundTasks }));
         }
       } catch {}
     })();
@@ -773,77 +895,343 @@ function ChatScreen() {
     };
   }, []);
 
-  // Cancel in-progress download
-  const cancelDownload = useCallback(async () => {
-    isDownloadingRef.current = false;
-    activeDownloadModelIdRef.current = null;
-    setDownloadingModelId(null);
-    setDownloadMinimized(false);
-    if (downloadJobIdRef.current !== null) {
+  // Pause in-progress download for a specific model without deleting progress
+  const pauseDownload = useCallback((modelId: string) => {
+    isPausedMapRef.current[modelId] = true;
+    const jobId = downloadJobsRef.current[modelId];
+    if (jobId !== null && jobId !== undefined) {
       try {
-        RNFS.stopDownload(downloadJobIdRef.current);
+        RNFS.stopDownload(jobId);
       } catch {}
-      downloadJobIdRef.current = null;
+      downloadJobsRef.current[modelId] = null;
     }
-    const { DownloadNotificationModule } = NativeModules;
-    if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
-      try {
-        await DownloadNotificationModule.stopForegroundService();
-      } catch {}
-    }
-    const model = activeDownloadModel;
-    try {
-      const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
-      if (await RNFS.exists(tempPath)) {
-        await RNFS.unlink(tempPath);
-      }
-      if (model.mmprojFile) {
-        const tempMm = `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}.part`;
-        if (await RNFS.exists(tempMm)) {
-          await RNFS.unlink(tempMm);
-        }
-      }
-    } catch {}
-    setProgress(0);
-    setDownloaded(0);
-    setDownloadTotal(0);
-    setDownloadSpeed('');
-    setDownloadEta('');
-    setDownloadTitle('');
-    setPhase('error');
-    setError('Download was canceled.');
-  }, [activeDownloadModel]);
+    setDownloadTasks(prev => {
+      const curr = prev[modelId];
+      if (!curr) return prev;
+      return {
+        ...prev,
+        [modelId]: {
+          ...curr,
+          status: 'paused',
+          speed: 'Paused',
+          eta: '',
+        },
+      };
+    });
+  }, []);
 
-  // Model preparation and switching (Protected against duplicate concurrent triggers)
-  const prepareModel = useCallback(async (targetModelId?: string) => {
-    const { DownloadNotificationModule } = NativeModules;
-    const modelId = targetModelId || selectedModelIdRef.current;
-    const model =
-      AVAILABLE_MODELS.find(m => m.id === modelId) || AVAILABLE_MODELS[0];
+  // Cancel and clean up a specific model's download
+  const cancelDownloadTask = useCallback(async (modelId: string) => {
+    isPausedMapRef.current[modelId] = true;
+    const jobId = downloadJobsRef.current[modelId];
+    if (jobId !== null && jobId !== undefined) {
+      try {
+        RNFS.stopDownload(jobId);
+      } catch {}
+      downloadJobsRef.current[modelId] = null;
+    }
+    const model = AVAILABLE_MODELS.find(m => m.id === modelId);
+    if (model) {
+      try {
+        const tempPath = `${RNFS.DocumentDirectoryPath}/${model.file}.part`;
+        const resumePath = `${tempPath}.resumeData`;
+        if (await RNFS.exists(tempPath)) await RNFS.unlink(tempPath);
+        if (await RNFS.exists(resumePath)) await RNFS.unlink(resumePath);
+        if (model.mmprojFile) {
+          const tempMm = `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}.part`;
+          const resumeMm = `${tempMm}.resumeData`;
+          if (await RNFS.exists(tempMm)) await RNFS.unlink(tempMm);
+          if (await RNFS.exists(resumeMm)) await RNFS.unlink(resumeMm);
+        }
+      } catch {}
+    }
+    setDownloadTasks(prev => {
+      const copy = { ...prev };
+      delete copy[modelId];
+      return copy;
+    });
+    // If active model download was cancelled, reset legacy state
+    if (downloadingModelId === modelId || activeDownloadModelIdRef.current === modelId) {
+      isDownloadingRef.current = false;
+      activeDownloadModelIdRef.current = null;
+      setDownloadingModelId(null);
+      setDownloadMinimized(false);
+      setProgress(0);
+      setDownloaded(0);
+      setDownloadTotal(0);
+      setDownloadSpeed('');
+      setDownloadEta('');
+      setDownloadTitle('');
+    }
+  }, [downloadingModelId]);
+
+  // Concurrent Resumable Download Engine (Supports 2+ concurrent downloads, pause, and Range resumes)
+  const startOrResumeDownload = useCallback(async (model: ModelOption) => {
+    isPausedMapRef.current[model.id] = false;
+    const isVision = model.category === 'vision' && !!model.mmprojFile && !!model.mmprojUrl;
+    const totalExpectedBytes = model.size + (isVision && model.mmprojSize ? model.mmprojSize : 0);
+
     const modelPath = `${RNFS.DocumentDirectoryPath}/${model.file}`;
     const tempPath = `${modelPath}.part`;
-
-    const isVision = model.category === 'vision' && !!model.mmprojFile && !!model.mmprojUrl;
     const mmprojPath = isVision ? `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}` : '';
     const tempMmprojPath = isVision ? `${mmprojPath}.part` : '';
 
-    // If this exact model is ALREADY downloading, do NOT restart or unlink!
-    if (isDownloadingRef.current && activeDownloadModelIdRef.current === model.id) {
-      return;
+    // Initialize or update task status
+    setDownloadTasks(prev => ({
+      ...prev,
+      [model.id]: {
+        modelId: model.id,
+        jobId: null,
+        status: 'downloading',
+        currentPart: 'main',
+        partTitle: isVision ? `Downloading ${model.name} (Brain 1/2)` : `Downloading ${model.name}`,
+        bytesWritten: prev[model.id]?.bytesWritten || 0,
+        totalBytes: totalExpectedBytes,
+        progress: prev[model.id]?.progress || 0,
+        speed: '',
+        eta: '',
+        error: undefined,
+      },
+    }));
+
+    speedCalcMapRef.current[model.id] = { lastBytes: 0, lastTime: Date.now() };
+
+    // Request Android notification permission if needed
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      try {
+        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+      } catch {}
     }
 
-    // If another download was running, cancel it before switching
-    if (downloadJobIdRef.current !== null && activeDownloadModelIdRef.current !== model.id) {
-      try {
-        RNFS.stopDownload(downloadJobIdRef.current);
-      } catch {}
-      downloadJobIdRef.current = null;
-      if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
-        try {
-          await DownloadNotificationModule.stopForegroundService();
-        } catch {}
+    // Download a single file part with HTTP Range resume support
+    const downloadPart = async (
+      fromUrl: string,
+      destPath: string,
+      tempFilePath: string,
+      expectedPartSize: number,
+      partLabel: string,
+      isMm: boolean,
+    ) => {
+      // 1. Check if already complete at final destination
+      if (await RNFS.exists(destPath)) {
+        const s = await RNFS.stat(destPath);
+        if (Math.abs(Number(s.size) - expectedPartSize) <= 4096) {
+          return;
+        }
       }
+
+      // 2. Check if already complete at temp part
+      let existingBytes = 0;
+      if (await RNFS.exists(tempFilePath)) {
+        const s = await RNFS.stat(tempFilePath);
+        existingBytes = Number(s.size);
+        if (Math.abs(existingBytes - expectedPartSize) <= 4096) {
+          await RNFS.moveFile(tempFilePath, destPath);
+          return;
+        }
+        if (existingBytes > expectedPartSize) {
+          await RNFS.unlink(tempFilePath);
+          existingBytes = 0;
+        }
+      }
+
+      if (isPausedMapRef.current[model.id]) return;
+
+      const headers: Record<string, string> = {};
+      if (existingBytes > 0) {
+        headers['Range'] = `bytes=${existingBytes}-`;
+      }
+
+      setDownloadTasks(prev => {
+        const curr = prev[model.id];
+        if (!curr) return prev;
+        return {
+          ...prev,
+          [model.id]: {
+            ...curr,
+            status: 'downloading',
+            currentPart: isMm ? 'mmproj' : 'main',
+            partTitle: partLabel,
+          },
+        };
+      });
+
+      let currentSpeedStr = '';
+      let currentEtaStr = '';
+
+      const downloadPromise = RNFS.downloadFile({
+        fromUrl,
+        toFile: tempFilePath,
+        headers,
+        background: true,
+        discretionary: false,
+        progressInterval: 300,
+        resumable: () => {},
+        begin: res => {
+          downloadJobsRef.current[model.id] = res.jobId;
+          speedCalcMapRef.current[model.id] = { lastBytes: existingBytes, lastTime: Date.now() };
+        },
+        progress: res => {
+          if (isPausedMapRef.current[model.id]) return;
+          const currentPartWritten = existingBytes + res.bytesWritten;
+          const overallDownloaded = (isMm ? model.size : 0) + currentPartWritten;
+          const overallProgress = Math.min(1, Math.max(0, overallDownloaded / totalExpectedBytes));
+
+          const now = Date.now();
+          const speedCalc = speedCalcMapRef.current[model.id] || { lastBytes: existingBytes, lastTime: now };
+          const timeDelta = (now - speedCalc.lastTime) / 1000;
+          if (timeDelta >= 1) {
+            const bytesDelta = overallDownloaded - speedCalc.lastBytes;
+            if (bytesDelta > 0) {
+              const spd = bytesDelta / timeDelta;
+              currentSpeedStr = `${(spd / (1024 * 1024)).toFixed(1)} MB/s`;
+              const remaining = Math.max(0, totalExpectedBytes - overallDownloaded);
+              const secs = Math.round(remaining / spd);
+              currentEtaStr = secs > 60 ? `~${Math.ceil(secs / 60)} min left` : `~${secs}s left`;
+            }
+            speedCalcMapRef.current[model.id] = { lastBytes: overallDownloaded, lastTime: now };
+          }
+
+          // Sync legacy single-download state if this model is the focused download
+          if (downloadingModelId === model.id || activeDownloadModelIdRef.current === model.id) {
+            setDownloaded(overallDownloaded);
+            setDownloadTotal(totalExpectedBytes);
+            setProgress(overallProgress);
+            setDownloadSpeed(currentSpeedStr);
+            setDownloadEta(currentEtaStr);
+            setDownloadTitle(partLabel);
+          }
+
+          setDownloadTasks(prev => {
+            const curr = prev[model.id];
+            if (!curr || curr.status === 'paused') return prev;
+            return {
+              ...prev,
+              [model.id]: {
+                ...curr,
+                bytesWritten: overallDownloaded,
+                totalBytes: totalExpectedBytes,
+                progress: overallProgress,
+                speed: currentSpeedStr,
+                eta: currentEtaStr,
+              },
+            };
+          });
+        },
+      });
+
+      downloadJobsRef.current[model.id] = downloadPromise.jobId;
+      const res = await downloadPromise.promise;
+      downloadJobsRef.current[model.id] = null;
+
+      if (isPausedMapRef.current[model.id]) return;
+
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
+        throw new Error(`Download failed with HTTP ${res.statusCode}`);
+      }
+
+      const stat = await RNFS.stat(tempFilePath);
+      if (Math.abs(Number(stat.size) - expectedPartSize) > 4096) {
+        throw new Error('Download incomplete. Please check your connection and resume.');
+      }
+
+      await RNFS.moveFile(tempFilePath, destPath);
+    };
+
+    try {
+      // Step 1: Main model weights
+      await downloadPart(
+        model.url,
+        modelPath,
+        tempPath,
+        model.size,
+        isVision ? `Downloading ${model.name} (Brain 1/2)` : `Downloading ${model.name}`,
+        false,
+      );
+
+      if (isPausedMapRef.current[model.id]) return;
+
+      // Step 2: Vision projector mmproj if vision model
+      if (isVision && model.mmprojUrl && model.mmprojSize && mmprojPath && tempMmprojPath) {
+        await downloadPart(
+          model.mmprojUrl,
+          mmprojPath,
+          tempMmprojPath,
+          model.mmprojSize,
+          `Downloading ${model.name} (Vision Eyes 2/2)`,
+          true,
+        );
+      }
+
+      if (isPausedMapRef.current[model.id]) return;
+
+      // Mark completed
+      setDownloadTasks(prev => ({
+        ...prev,
+        [model.id]: {
+          ...prev[model.id],
+          status: 'completed',
+          progress: 1,
+          bytesWritten: totalExpectedBytes,
+          speed: '',
+          eta: '',
+        },
+      }));
+
+      await refreshDownloadedStatus();
+
+      Alert.alert(
+        'Download Complete! 🎉',
+        `"${model.name}" is now stored 100% offline on your device.\n\nWould you like to activate it for chat now?`,
+        [
+          { text: 'Keep in Storage', style: 'cancel' },
+          {
+            text: 'Switch to Model',
+            onPress: () => {
+              switchModel(model.id);
+            },
+          },
+        ],
+      );
+    } catch (err: any) {
+      if (isPausedMapRef.current[model.id]) return;
+      downloadJobsRef.current[model.id] = null;
+      setDownloadTasks(prev => ({
+        ...prev,
+        [model.id]: {
+          ...prev[model.id],
+          status: 'error',
+          error: err?.message || 'Download paused or interrupted. Tap Resume to continue.',
+        },
+      }));
     }
+  }, [downloadingModelId, refreshDownloadedStatus]);
+
+  // Resume download helper
+  const resumeDownload = useCallback((modelId: string) => {
+    const model = AVAILABLE_MODELS.find(m => m.id === modelId);
+    if (model) {
+      startOrResumeDownload(model);
+    }
+  }, [startOrResumeDownload]);
+
+  // Cancel in-progress download for focused legacy modal
+  const cancelDownload = useCallback(async () => {
+    const modelToCancel = activeDownloadModel;
+    await cancelDownloadTask(modelToCancel.id);
+    setPhase('error');
+    setError('Download was canceled.');
+  }, [activeDownloadModel, cancelDownloadTask]);
+
+  // Model preparation and switching (Handles RAM safety, fast fallback, and non-blocking errors)
+  const prepareModel = useCallback(async (targetModelId?: string) => {
+    const modelId = targetModelId || selectedModelIdRef.current || 'qwen2.5-1.5b';
+    const model =
+      AVAILABLE_MODELS.find(m => m.id === modelId) || AVAILABLE_MODELS[0];
+    const modelPath = `${RNFS.DocumentDirectoryPath}/${model.file}`;
+
+    const isVision = model.category === 'vision' && !!model.mmprojFile && !!model.mmprojUrl;
+    const mmprojPath = isVision ? `${RNFS.DocumentDirectoryPath}/${model.mmprojFile}` : '';
 
     try {
       setError('');
@@ -874,152 +1262,15 @@ function ChatScreen() {
         isDownloadingRef.current = true;
         activeDownloadModelIdRef.current = model.id;
         setDownloadingModelId(model.id);
-        setDownloadTotal(model.size);
+        setDownloadTotal(model.size + (isVision && model.mmprojSize ? model.mmprojSize : 0));
+        setDownloadTitle(isVision ? `Downloading ${model.name} (Brain 1/2)` : `Downloading ${model.name}`);
 
-        // On Android 13+, request notification permission
-        if (Platform.OS === 'android' && Platform.Version >= 33) {
-          try {
-            await PermissionsAndroid.request(
-              PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-            );
-          } catch {}
-        }
-
-        const downloadSingleFile = async (
-          fromUrl: string,
-          toTemp: string,
-          toDest: string,
-          expectedSize: number,
-          label: string,
-        ) => {
-          setDownloadTitle(label);
-          setDownloadTotal(expectedSize);
-          setProgress(0);
-          setDownloaded(0);
-          setDownloadSpeed('');
-          setDownloadEta('');
-          speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
-
-          if (await RNFS.exists(toTemp)) {
-            await RNFS.unlink(toTemp);
-          }
-
-          if (Platform.OS === 'android' && DownloadNotificationModule?.startForegroundService) {
-            try {
-              await DownloadNotificationModule.startForegroundService(
-                label,
-                '',
-                'Starting download...',
-                '0 MB',
-                formatSize(expectedSize),
-                formatSize(expectedSize),
-                0,
-              );
-            } catch (err) {
-              console.warn('Could not start download foreground service:', err);
-            }
-          }
-
-          let lastNotifyTime = 0;
-          let currentSpeedStr = '';
-          let currentEtaStr = '';
-
-          const job = RNFS.downloadFile({
-            fromUrl,
-            toFile: toTemp,
-            background: true,
-            discretionary: false,
-            progressInterval: 250,
-            begin: () => {
-              speedCalcRef.current = { lastBytes: 0, lastTime: Date.now() };
-            },
-            progress: res => {
-              const total =
-                res.contentLength && res.contentLength > 100000000
-                  ? res.contentLength
-                  : expectedSize;
-              const written = res.bytesWritten;
-              setDownloaded(written);
-              setDownloadTotal(total);
-              setProgress(Math.min(1, Math.max(0, written / total)));
-
-              const now = Date.now();
-              const timeDelta = (now - speedCalcRef.current.lastTime) / 1000;
-              if (timeDelta >= 1) {
-                const bytesDelta = written - speedCalcRef.current.lastBytes;
-                if (bytesDelta > 0) {
-                  const spd = bytesDelta / timeDelta;
-                  currentSpeedStr = `${(spd / (1024 * 1024)).toFixed(1)} MB/s`;
-                  setDownloadSpeed(currentSpeedStr);
-                  const remaining = Math.max(0, total - written);
-                  const secs = Math.round(remaining / spd);
-                  currentEtaStr = secs > 60 ? `~${Math.ceil(secs / 60)} min left` : `~${secs}s left`;
-                  setDownloadEta(currentEtaStr);
-                }
-                speedCalcRef.current = { lastBytes: written, lastTime: now };
-              }
-
-              if (now - lastNotifyTime >= 1000) {
-                lastNotifyTime = now;
-                const percent = Math.min(100, Math.max(0, Math.round((written / total) * 100)));
-                const leftBytes = Math.max(0, total - written);
-
-                if (Platform.OS === 'android' && DownloadNotificationModule?.updateProgress) {
-                  DownloadNotificationModule.updateProgress(
-                    label,
-                    currentSpeedStr,
-                    currentEtaStr,
-                    formatDetailedSize(written),
-                    formatSize(total),
-                    formatDetailedSize(leftBytes),
-                    percent,
-                  );
-                }
-              }
-            },
-          });
-
-          downloadJobIdRef.current = job.jobId;
-          const result = await job.promise;
-          downloadJobIdRef.current = null;
-
-          if (result.statusCode !== 200) {
-            throw new Error(`Download failed (HTTP ${result.statusCode})`);
-          }
-          const stat = await RNFS.stat(toTemp);
-          if (Math.abs(Number(stat.size) - expectedSize) > 4096) {
-            throw new Error('Download incomplete. Check internet connection and retry.');
-          }
-          await RNFS.moveFile(toTemp, toDest);
-        };
-
-        // Step 1: Download main model weights if not ready
-        if (!modelReady) {
-          const label = isVision ? `Downloading ${model.name} (Brain 1/2)` : `Downloading ${model.name}`;
-          await downloadSingleFile(model.url, tempPath, modelPath, model.size, label);
-        }
-
-        // Step 2: Download vision mmproj eyes if vision and not ready
-        if (isVision && !mmprojReady && model.mmprojUrl && model.mmprojSize) {
-          const label = `Downloading ${model.name} (Vision Eyes 2/2)`;
-          await downloadSingleFile(model.mmprojUrl, tempMmprojPath, mmprojPath, model.mmprojSize, label);
-        }
-
-        isDownloadingRef.current = false;
-        activeDownloadModelIdRef.current = null;
-        setDownloadingModelId(null);
-        setDownloadTitle('');
-        setDownloadMinimized(false);
-
-        if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
-          try {
-            await DownloadNotificationModule.stopForegroundService();
-          } catch {}
-        }
-
-        await refreshDownloadedStatus();
+        // Launch background resumable download
+        startOrResumeDownload(model);
+        return;
       }
 
+      // Model is present on disk, load into memory
       setPhase('loading');
       if (ctxRef.current) {
         try {
@@ -1028,21 +1279,22 @@ function ChatScreen() {
         ctxRef.current = null;
       }
 
-      // Context size: optimize for 14B / 7B or vision models to avoid RAM exhaustion
+      // Memory optimization: guard against RAM exhaustion on 14B / 7B models
       const isLargeModel =
         model.id === 'qwen2.5-14b' ||
+        model.id === 'qwen2.5-7b' ||
         model.id === 'qwen2-vl-7b' ||
         model.size > 4000000000;
+
       const ctx = await initLlama({
         model: `file://${modelPath}`,
         n_ctx: isLargeModel ? 2048 : 4096,
         n_gpu_layers: 0,
         use_mlock: false,
-        // Disable context shifting for multimodal vision models to preserve image token alignment
         ctx_shift: !isVision,
       });
 
-      // Initialize multimodal vision support if vision model
+      // Multimodal vision initialization
       if (isVision && model.mmprojFile) {
         try {
           const ok = await ctx.initMultimodal({
@@ -1068,21 +1320,31 @@ function ChatScreen() {
       setPhase('ready');
       await refreshDownloadedStatus();
     } catch (e: any) {
-      if (Platform.OS === 'android' && DownloadNotificationModule?.stopForegroundService) {
-        try {
-          await DownloadNotificationModule.stopForegroundService();
-        } catch {}
-      }
       isDownloadingRef.current = false;
       activeDownloadModelIdRef.current = null;
       setDownloadingModelId(null);
       setDownloadMinimized(false);
       downloadJobIdRef.current = null;
       setDownloadTitle('');
-      setError(e?.message ?? String(e));
+
+      const rawMsg = e?.message ?? String(e);
+      // Helpful diagnosis for out-of-memory or model loading issues
+      if (
+        rawMsg.includes('Failed to load model') ||
+        rawMsg.includes('memory') ||
+        rawMsg.includes('mmap') ||
+        model.id === 'qwen2.5-14b' ||
+        model.id === 'qwen2.5-7b'
+      ) {
+        setError(
+          `Failed to load ${model.name}: Device RAM limit exceeded. Large 14B/7B models require ~6GB–9GB of continuous RAM, which exceeds phone system memory limits. Please switch to Qwen2.5 1.5B Fast or 3B Smart.`,
+        );
+      } else {
+        setError(rawMsg);
+      }
       setPhase('error');
     }
-  }, [refreshDownloadedStatus]);
+  }, [refreshDownloadedStatus, startOrResumeDownload]);
 
   // Load saved personalization and saved model choice on mount
   useEffect(() => {
@@ -1374,31 +1636,9 @@ function ChatScreen() {
   };
 
   const handleRequestDownload = (model: ModelOption) => {
-    setDownloadMinimized(false);
-    const totalSize = model.size + (model.mmprojSize || 0);
-    if (totalSize > 3500000000) {
-      Alert.alert(
-        `Download ${model.name}?`,
-        `This is a high-capability ${formatSize(totalSize)} AI ${model.category === 'vision' ? 'multimodal vision brain' : 'brain'}.\n\n` +
-          `• Connect to Wi-Fi\n` +
-          `• Requires ~${formatSize(totalSize * 1.2)} free phone storage\n` +
-          (model.category === 'vision'
-            ? `• Includes both Vision Brain and Vision Projector Eyes for direct screenshot & photo analysis\n\n`
-            : `• Runs locally with deep reasoning\n\n`) +
-          `Proceed with download?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Download & Activate',
-            onPress: () => {
-              switchModel(model.id);
-            },
-          },
-        ],
-      );
-    } else {
-      switchModel(model.id);
-    }
+    // Start concurrent background download for this model without interrupting active chat or other downloads
+    startOrResumeDownload(model);
+    setSettingsTab('downloads');
   };
 
   const saveSettings = useCallback(async () => {
@@ -2101,31 +2341,122 @@ function ChatScreen() {
         {phase === 'loading' && <Status text="Loading model into memory…" />}
 
         {phase === 'error' && (
-          <View style={styles.card}>
-            <Text style={[styles.cardTitle, { color: C.danger }]}>Download Notice</Text>
-            <Text style={styles.cardText}>{error}</Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, width: '100%' }}>
+          <View style={[styles.card, { padding: 18, maxWidth: 360, width: '100%' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <AlertTriangle size={20} color={C.danger} />
+              <Text style={[styles.cardTitle, { color: C.danger, marginBottom: 0 }]}>Model Notice</Text>
+            </View>
+            <Text style={[styles.cardText, { lineHeight: 19, fontSize: 13.5 }]}>{error}</Text>
+
+            {/* RAM Safety Advice Box */}
+            {(selectedModelId.includes('14b') ||
+              selectedModelId.includes('7b') ||
+              error.toLowerCase().includes('ram') ||
+              error.toLowerCase().includes('memory') ||
+              error.toLowerCase().includes('load model')) && (
+              <View style={styles.ramWarningBox}>
+                <Text style={styles.ramWarningTitle}>💡 RAM Limit Advisory</Text>
+                <Text style={styles.ramWarningText}>
+                  Large models (like 14B) require 9GB+ of continuous RAM, which exceeds mobile app limits.
+                  Switch to <Text style={{ fontWeight: '700' }}>Qwen2.5 1.5B Fast</Text> or <Text style={{ fontWeight: '700' }}>3B Smart</Text> for smooth offline performance on this phone.
+                </Text>
+              </View>
+            )}
+
+            <View style={{ gap: 9, marginTop: 14, width: '100%' }}>
+              {/* Option 1: Switch to Recommended Safe Model (1-tap rescue) */}
               <Pressable
-                style={({ pressed }) => [styles.button, { flex: 1 }, pressed && styles.pressed]}
-                onPress={() => prepareModel()}>
-                <Text style={styles.buttonText}>Retry</Text>
+                style={({ pressed }) => [
+                  styles.button,
+                  { backgroundColor: C.accent, paddingVertical: 11 },
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  switchModel('qwen2.5-1.5b');
+                }}>
+                <Zap size={14} color="#FFFFFF" />
+                <Text style={[styles.buttonText, { color: '#FFFFFF', fontWeight: '700' }]}>
+                  Switch to Qwen2.5 1.5B (Safe)
+                </Text>
               </Pressable>
-              {AVAILABLE_MODELS.some(m => downloadedModels[m.id] && m.id !== activeModel.id) && (
+
+              <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
+                {/* Option 2: Retry */}
                 <Pressable
                   style={({ pressed }) => [
                     styles.button,
                     { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
                     pressed && styles.pressed,
                   ]}
+                  onPress={() => prepareModel()}>
+                  <RefreshCw size={13} color={C.text} />
+                  <Text style={[styles.buttonText, { color: C.text }]}>Retry</Text>
+                </Pressable>
+
+                {/* Option 3: Use other cached model if available (fixed logic) */}
+                {AVAILABLE_MODELS.some(m => downloadedModels[m.id] && m.id !== selectedModelId) && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.button,
+                      { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => {
+                      const fallback = AVAILABLE_MODELS.find(m => downloadedModels[m.id] && m.id !== selectedModelId);
+                      if (fallback) {
+                        switchModel(fallback.id);
+                      }
+                    }}>
+                    <HardDrive size={13} color={C.accent} />
+                    <Text style={[styles.buttonText, { color: C.accent }]}>Use Cached</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Option 4: Open Model Hub & Downloads */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setSettingsTab('models');
+                  setSettingsOpen(true);
+                }}>
+                <Settings size={14} color={C.text} />
+                <Text style={[styles.buttonText, { color: C.text }]}>Open Model Manager</Text>
+              </Pressable>
+
+              {/* Option 5: Delete failing model file if it exists to free space */}
+              {downloadedModels[selectedModelId] && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.button,
+                    { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FEE2E2' },
+                    pressed && styles.pressed,
+                  ]}
                   onPress={() => {
-                    const fallback = AVAILABLE_MODELS.find(m => downloadedModels[m.id]);
-                    if (fallback) {
-                      switchModel(fallback.id);
-                    }
+                    const m = AVAILABLE_MODELS.find(item => item.id === selectedModelId);
+                    if (m) deleteModel(m);
                   }}>
-                  <Text style={[styles.buttonText, { color: C.text }]}>Use Cached</Text>
+                  <Trash2 size={13} color={C.danger} />
+                  <Text style={[styles.buttonText, { color: C.danger }]}>Delete Failed Model Weights</Text>
                 </Pressable>
               )}
+
+              {/* Option 6: Continue to chat offline without blocking */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  { backgroundColor: 'transparent', paddingVertical: 6 },
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => setPhase('ready')}>
+                <Text style={[styles.buttonText, { color: C.textSecondary, fontSize: 12.5 }]}>
+                  Continue to Chat (Offline)
+                </Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -2251,64 +2582,72 @@ function ChatScreen() {
         </View>
       </View>
 
-      {/* Mini Download Banner when minimized */}
-      {(isDownloadingRef.current || downloadingModelId !== null) && downloadMinimized && (
-        <View style={styles.miniDownloadBanner}>
-          <View style={styles.miniDownloadLeft}>
-            <View style={styles.miniDownloadIconBadge}>
-              <Download size={13} color={C.accent} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.miniDownloadTitleRow}>
-                <Text style={styles.miniDownloadTitle} numberOfLines={1}>
-                  {downloadTitle || `Downloading ${activeDownloadModel.name}`}
-                </Text>
-                <Text style={styles.miniDownloadPercent}>
-                  {(progress * 100).toFixed(0)}%
+      {/* Mini Multi-Download Banner when downloads are active */}
+      {(() => {
+        const activeList = Object.values(downloadTasks).filter(
+          t => t.status === 'downloading' || t.status === 'paused',
+        );
+        if (activeList.length === 0) return null;
+
+        const isMulti = activeList.length > 1;
+        const first = activeList[0];
+        const firstModel = AVAILABLE_MODELS.find(m => m.id === first.modelId);
+        const hasDownloading = activeList.some(t => t.status === 'downloading');
+
+        return (
+          <View style={styles.miniDownloadBanner}>
+            <View style={styles.miniDownloadLeft}>
+              <View style={[styles.miniDownloadIconBadge, !hasDownloading && { backgroundColor: '#FEF3C7' }]}>
+                {hasDownloading ? (
+                  <ActivityIndicator size="small" color={C.accent} style={{ transform: [{ scale: 0.65 }] }} />
+                ) : (
+                  <Pause size={12} color="#D97706" />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={styles.miniDownloadTitleRow}>
+                  <Text style={styles.miniDownloadTitle} numberOfLines={1}>
+                    {isMulti
+                      ? `Downloading ${activeList.length} Models`
+                      : `${firstModel?.name || first.modelId}`}
+                  </Text>
+                  <Text style={styles.miniDownloadPercent}>
+                    {isMulti
+                      ? `${activeList.filter(t => t.status === 'downloading').length} running`
+                      : `${Math.round(first.progress * 100)}%`}
+                  </Text>
+                </View>
+                <Text style={styles.miniDownloadStats} numberOfLines={1}>
+                  {isMulti
+                    ? activeList
+                        .map(
+                          t =>
+                            `${AVAILABLE_MODELS.find(m => m.id === t.modelId)?.name.split(' ')[0] || t.modelId} (${Math.round(t.progress * 100)}%)`,
+                        )
+                        .join(' · ')
+                    : `${formatMBOnly(first.bytesWritten)} / ${formatMBOnly(first.totalBytes)}${first.speed ? ` · ${first.speed}` : ''}${first.eta ? ` · ${first.eta}` : ''}`}
                 </Text>
               </View>
-              <Text style={styles.miniDownloadStats} numberOfLines={1}>
-                Done: {formatMBOnly(downloaded)} · Left:{' '}
-                {formatMBOnly(
-                  Math.max(
-                    0,
-                    (downloadTotal ||
-                      (downloadTitle.includes('Vision Eyes')
-                        ? activeDownloadModel.mmprojSize || activeDownloadModel.size
-                        : activeDownloadModel.size)) - downloaded,
-                  ),
-                )}
-                {downloadSpeed ? ` · ${downloadSpeed}` : ''}
-              </Text>
+            </View>
+
+            <View style={styles.miniDownloadActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.miniDownloadBtn,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setSettingsTab('downloads');
+                  setSettingsOpen(true);
+                }}
+                hitSlop={6}>
+                <HardDrive size={12} color={C.accent} />
+                <Text style={styles.miniDownloadBtnText}>Manage ({activeList.length})</Text>
+              </Pressable>
             </View>
           </View>
-
-          <View style={styles.miniDownloadActions}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.miniDownloadBtn,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => setDownloadMinimized(false)}
-              hitSlop={6}>
-              <Maximize2 size={12} color={C.accent} />
-              <Text style={styles.miniDownloadBtnText}>View</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.miniDownloadSettingsBtn,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => {
-                setSettingsTab('downloads');
-                setSettingsOpen(true);
-              }}
-              hitSlop={6}>
-              <Settings size={13} color={C.textSecondary} />
-            </Pressable>
-          </View>
-        </View>
-      )}
+        );
+      })()}
 
       {/* Chat Messages */}
       <FlatList
@@ -2991,9 +3330,9 @@ function ChatScreen() {
                       const isSelected = selectedModelId === m.id;
                       const isDownloaded = downloadedModels[m.id] === true;
                       const isActive = isSelected && phase === 'ready';
-                      const isCurrentlyDownloading =
-                        (isDownloadingRef.current || downloadingModelId !== null) &&
-                        (m.id === downloadingModelId || m.id === activeDownloadModelIdRef.current);
+                      const task = downloadTasks[m.id];
+                      const isDownloading = task?.status === 'downloading';
+                      const isPaused = task?.status === 'paused';
 
                       return (
                         <View
@@ -3029,13 +3368,26 @@ function ChatScreen() {
 
                           <Text style={styles.modelCardDesc}>{m.description}</Text>
 
+                          {m.ramWarning && (
+                            <View style={styles.modelRamNotice}>
+                              <Text style={styles.modelRamNoticeText}>{m.ramWarning}</Text>
+                            </View>
+                          )}
+
                           {/* Status badge & action buttons */}
                           <View style={styles.modelActionRow}>
-                            {isCurrentlyDownloading ? (
+                            {isDownloading ? (
                               <View style={styles.modelDownloadingBadge}>
                                 <ActivityIndicator size="small" color={C.accent} style={{ transform: [{ scale: 0.7 }] }} />
                                 <Text style={styles.modelDownloadingBadgeText}>
-                                  Downloading {(progress * 100).toFixed(0)}%
+                                  Downloading {Math.round(task.progress * 100)}%
+                                </Text>
+                              </View>
+                            ) : isPaused ? (
+                              <View style={[styles.modelDownloadingBadge, { backgroundColor: '#FEF3C7' }]}>
+                                <Pause size={11} color="#D97706" />
+                                <Text style={[styles.modelDownloadingBadgeText, { color: '#D97706' }]}>
+                                  Paused {Math.round(task.progress * 100)}%
                                 </Text>
                               </View>
                             ) : isActive ? (
@@ -3055,16 +3407,52 @@ function ChatScreen() {
                             )}
 
                             <View style={styles.modelBtnGroup}>
-                              {isCurrentlyDownloading ? (
-                                <Pressable
-                                  style={({ pressed }) => [
-                                    styles.modelSwitchBtn,
-                                    pressed && styles.pressed,
-                                  ]}
-                                  onPress={() => setSettingsTab('downloads')}>
-                                  <HardDrive size={12} color="#FFFFFF" />
-                                  <Text style={styles.modelSwitchBtnText}>View Progress</Text>
-                                </Pressable>
+                              {isDownloading ? (
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelSwitchBtn,
+                                      { backgroundColor: '#F59E0B' },
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => pauseDownload(m.id)}>
+                                    <Pause size={12} color="#FFFFFF" />
+                                    <Text style={styles.modelSwitchBtnText}>Pause</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelDeleteBtn,
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => cancelDownloadTask(m.id)}
+                                    hitSlop={6}
+                                    accessibilityLabel={`Cancel ${m.name}`}>
+                                    <X size={13} color={C.danger} />
+                                  </Pressable>
+                                </View>
+                              ) : isPaused ? (
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelSwitchBtn,
+                                      { backgroundColor: C.accent },
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => resumeDownload(m.id)}>
+                                    <Play size={12} color="#FFFFFF" />
+                                    <Text style={styles.modelSwitchBtnText}>Resume</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.modelDeleteBtn,
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => cancelDownloadTask(m.id)}
+                                    hitSlop={6}
+                                    accessibilityLabel={`Cancel ${m.name}`}>
+                                    <X size={13} color={C.danger} />
+                                  </Pressable>
+                                </View>
                               ) : isDownloaded ? (
                                 <>
                                   {!isActive && (
@@ -3098,7 +3486,7 @@ function ChatScreen() {
                                   onPress={() => handleRequestDownload(m)}>
                                   <Download size={13} color={C.accent} />
                                   <Text style={styles.modelDownloadBtnText}>
-                                    Download & Use
+                                    Download
                                   </Text>
                                 </Pressable>
                               )}
@@ -3112,14 +3500,14 @@ function ChatScreen() {
               ) : settingsTab === 'downloads' ? (
                 /* Tab 2: Downloads & Active Models */
                 <View style={{ gap: 16, paddingBottom: 24 }}>
-                  {/* Current Download Progress Card */}
+                  {/* Current Active & Paused Downloads Section */}
                   <View style={styles.downloadsSectionCard}>
                     <View style={styles.downloadsSectionHeaderRow}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Download size={16} color={C.accent} />
-                        <Text style={styles.downloadsSectionTitle}>Current Download Progress</Text>
+                        <Text style={styles.downloadsSectionTitle}>Active & Paused Downloads</Text>
                       </View>
-                      {(isDownloadingRef.current || downloadingModelId !== null) && (
+                      {Object.values(downloadTasks).some(t => t.status === 'downloading') && (
                         <View style={styles.downloadingLiveBadge}>
                           <ActivityIndicator size="small" color={C.accent} style={{ transform: [{ scale: 0.65 }] }} />
                           <Text style={styles.downloadingLiveBadgeText}>Live</Text>
@@ -3127,117 +3515,121 @@ function ChatScreen() {
                       )}
                     </View>
 
-                    {(isDownloadingRef.current || downloadingModelId !== null) ? (
-                      <View style={{ gap: 10, marginTop: 4 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <View style={{ flex: 1, marginRight: 8 }}>
-                            <Text style={styles.dlModelName}>
-                              {activeDownloadModel.name}
-                            </Text>
-                            <Text style={styles.dlPartTitle}>
-                              {downloadTitle || (activeDownloadModel.category === 'vision' ? 'Downloading Model Weights (Brain 1/2)' : 'Downloading Model Weights')}
-                            </Text>
-                          </View>
-                          <View style={[styles.modelTag, { backgroundColor: activeDownloadModel.category === 'vision' ? '#F3E8FF' : C.accentSoft }]}>
-                            <Text style={[styles.modelTagText, { color: activeDownloadModel.category === 'vision' ? '#7C3AED' : C.accent }]}>
-                              {activeDownloadModel.category === 'vision' ? 'Vision AI' : 'Text AI'}
-                            </Text>
-                          </View>
-                        </View>
-
-                        {/* Progress Bar */}
-                        <View style={styles.barTrack}>
-                          <View
-                            style={[
-                              styles.barFill,
-                              { width: `${Math.max(2, Math.min(100, progress * 100)).toFixed(1)}%` },
-                            ]}
-                          />
-                        </View>
-
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={styles.progressPercentText}>
-                            {(progress * 100).toFixed(1)}%
-                          </Text>
-                          {(downloadSpeed || downloadEta) && (
-                            <View style={styles.speedEtaRow}>
-                              {downloadSpeed ? (
-                                <View style={styles.speedBadge}>
-                                  <Zap size={11} color={C.accent} />
-                                  <Text style={styles.speedBadgeText}>{downloadSpeed}</Text>
+                    {Object.values(downloadTasks).filter(t => t.status === 'downloading' || t.status === 'paused').length > 0 ? (
+                      <View style={{ gap: 12, marginTop: 6 }}>
+                        {Object.values(downloadTasks)
+                          .filter(t => t.status === 'downloading' || t.status === 'paused')
+                          .map(task => {
+                            const m = AVAILABLE_MODELS.find(item => item.id === task.modelId);
+                            const isPaused = task.status === 'paused';
+                            return (
+                              <View key={task.modelId} style={styles.multiDownloadCard}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <View style={{ flex: 1, marginRight: 8 }}>
+                                    <Text style={styles.dlModelName}>{m?.name || task.modelId}</Text>
+                                    <Text style={styles.dlPartTitle}>{task.partTitle}</Text>
+                                  </View>
+                                  <View style={[styles.modelTag, { backgroundColor: m?.category === 'vision' ? '#F3E8FF' : C.accentSoft }]}>
+                                    <Text style={[styles.modelTagText, { color: m?.category === 'vision' ? '#7C3AED' : C.accent }]}>
+                                      {m?.category === 'vision' ? 'Vision AI' : 'Text AI'}
+                                    </Text>
+                                  </View>
                                 </View>
-                              ) : null}
-                              {downloadEta ? (
-                                <Text style={styles.etaText}>{downloadEta}</Text>
-                              ) : null}
-                            </View>
-                          )}
-                        </View>
 
-                        {/* MB Done & MB Remaining Stat Cards */}
-                        {(() => {
-                          const currentTotal =
-                            downloadTotal ||
-                            (downloadTitle.includes('Vision Eyes')
-                              ? activeDownloadModel.mmprojSize || activeDownloadModel.size
-                              : activeDownloadModel.size);
-                          const currentRemaining = Math.max(0, currentTotal - downloaded);
-                          return (
-                            <View style={styles.statsCardGrid}>
-                              <View style={styles.statBox}>
-                                <Text style={styles.statBoxLabel}>MB Done</Text>
-                                <Text style={styles.statBoxValue}>{formatMBOnly(downloaded)}</Text>
-                                <Text style={styles.statBoxSub}>({formatDetailedSize(downloaded)})</Text>
+                                {/* Progress Bar */}
+                                <View style={styles.barTrack}>
+                                  <View
+                                    style={[
+                                      styles.barFill,
+                                      isPaused && { backgroundColor: '#F59E0B' },
+                                      { width: `${Math.max(2, Math.min(100, task.progress * 100)).toFixed(1)}%` },
+                                    ]}
+                                  />
+                                </View>
+
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Text style={[styles.progressPercentText, isPaused && { color: '#D97706' }]}>
+                                    {isPaused ? `⏸️ Paused (${(task.progress * 100).toFixed(1)}%)` : `${(task.progress * 100).toFixed(1)}%`}
+                                  </Text>
+                                  {(task.speed || task.eta) && (
+                                    <View style={styles.speedEtaRow}>
+                                      {task.speed ? (
+                                        <View style={[styles.speedBadge, isPaused && { backgroundColor: '#FEF3C7' }]}>
+                                          <Zap size={11} color={isPaused ? '#D97706' : C.accent} />
+                                          <Text style={[styles.speedBadgeText, isPaused && { color: '#D97706' }]}>{task.speed}</Text>
+                                        </View>
+                                      ) : null}
+                                      {task.eta ? (
+                                        <Text style={styles.etaText}>{task.eta}</Text>
+                                      ) : null}
+                                    </View>
+                                  )}
+                                </View>
+
+                                {/* Stats row */}
+                                <View style={styles.statsCardGrid}>
+                                  <View style={styles.statBox}>
+                                    <Text style={styles.statBoxLabel}>Done</Text>
+                                    <Text style={styles.statBoxValue}>{formatMBOnly(task.bytesWritten)}</Text>
+                                  </View>
+                                  <View style={styles.statBox}>
+                                    <Text style={styles.statBoxLabel}>Remaining</Text>
+                                    <Text style={[styles.statBoxValue, { color: '#D97706' }]}>
+                                      {formatMBOnly(Math.max(0, task.totalBytes - task.bytesWritten))}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.statBox}>
+                                    <Text style={styles.statBoxLabel}>Total</Text>
+                                    <Text style={styles.statBoxValue}>{formatMBOnly(task.totalBytes)}</Text>
+                                  </View>
+                                </View>
+
+                                {/* Actions: Pause / Resume & Cancel */}
+                                <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                  {isPaused ? (
+                                    <Pressable
+                                      style={({ pressed }) => [
+                                        styles.downloadsActionBtn,
+                                        { flex: 1, backgroundColor: C.accent },
+                                        pressed && styles.pressed,
+                                      ]}
+                                      onPress={() => resumeDownload(task.modelId)}>
+                                      <Play size={13} color="#FFFFFF" />
+                                      <Text style={[styles.downloadsActionBtnText, { color: '#FFFFFF' }]}>
+                                        Resume Download
+                                      </Text>
+                                    </Pressable>
+                                  ) : (
+                                    <Pressable
+                                      style={({ pressed }) => [
+                                        styles.downloadsActionBtn,
+                                        { flex: 1, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
+                                        pressed && styles.pressed,
+                                      ]}
+                                      onPress={() => pauseDownload(task.modelId)}>
+                                      <Pause size={13} color="#D97706" />
+                                      <Text style={[styles.downloadsActionBtnText, { color: '#D97706' }]}>
+                                        Pause
+                                      </Text>
+                                    </Pressable>
+                                  )}
+
+                                  <Pressable
+                                    style={({ pressed }) => [
+                                      styles.downloadsActionBtn,
+                                      { flex: 1, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FEE2E2' },
+                                      pressed && styles.pressed,
+                                    ]}
+                                    onPress={() => cancelDownloadTask(task.modelId)}>
+                                    <X size={13} color={C.danger} />
+                                    <Text style={[styles.downloadsActionBtnText, { color: C.danger }]}>
+                                      Cancel
+                                    </Text>
+                                  </Pressable>
+                                </View>
                               </View>
-
-                              <View style={styles.statBox}>
-                                <Text style={styles.statBoxLabel}>MB Remaining</Text>
-                                <Text style={[styles.statBoxValue, { color: '#D97706' }]}>
-                                  {formatMBOnly(currentRemaining)}
-                                </Text>
-                                <Text style={styles.statBoxSub}>({formatDetailedSize(currentRemaining)})</Text>
-                              </View>
-
-                              <View style={styles.statBox}>
-                                <Text style={styles.statBoxLabel}>Total</Text>
-                                <Text style={styles.statBoxValue}>{formatMBOnly(currentTotal)}</Text>
-                                <Text style={styles.statBoxSub}>({formatDetailedSize(currentTotal)})</Text>
-                              </View>
-                            </View>
-                          );
-                        })()}
-
-                        {/* Actions */}
-                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.downloadsActionBtn,
-                              { flex: 1, backgroundColor: C.accent },
-                              pressed && styles.pressed,
-                            ]}
-                            onPress={() => {
-                              setSettingsOpen(false);
-                              setDownloadMinimized(false);
-                            }}>
-                            <Maximize2 size={13} color="#FFFFFF" />
-                            <Text style={[styles.downloadsActionBtnText, { color: '#FFFFFF' }]}>
-                              Maximize Popup
-                            </Text>
-                          </Pressable>
-
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.downloadsActionBtn,
-                              { flex: 1, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FEE2E2' },
-                              pressed && styles.pressed,
-                            ]}
-                            onPress={cancelDownload}>
-                            <X size={13} color={C.danger} />
-                            <Text style={[styles.downloadsActionBtnText, { color: C.danger }]}>
-                              Cancel Download
-                            </Text>
-                          </Pressable>
-                        </View>
+                            );
+                          })}
                       </View>
                     ) : (
                       <View style={styles.noDownloadContainer}>
@@ -3245,7 +3637,7 @@ function ChatScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={styles.noDownloadTitle}>No active downloads</Text>
                           <Text style={styles.noDownloadDesc}>
-                            All downloaded models are stored locally on your device for 100% offline use.
+                            You can download multiple models simultaneously from the Models tab. All models work 100% offline.
                           </Text>
                         </View>
                       </View>
@@ -3824,6 +4216,181 @@ function ChatScreen() {
 }
 
 // ---- Markdown Code Block & Message Renderer -------------------------------
+function renderInlineMarkdown(text: string, baseStyle: any, keyPrefix: string): React.ReactNode {
+  if (!text) return null;
+  const tokenRegex = /(\*\*[^*]+?\*\*|__[^_]+?__|`[^`]+?`|\*[^*]+?\*|_[^_]+?_)/g;
+  const parts = text.split(tokenRegex);
+  return parts.map((part, idx) => {
+    const key = `${keyPrefix}_inline_${idx}`;
+    if (
+      (part.startsWith('**') && part.endsWith('**') && part.length >= 4) ||
+      (part.startsWith('__') && part.endsWith('__') && part.length >= 4)
+    ) {
+      return (
+        <Text key={key} style={[baseStyle, styles.boldText]}>
+          {part.slice(2, -2)}
+        </Text>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      return (
+        <Text key={key} style={[baseStyle, styles.inlineCode]}>
+          {part.slice(1, -1)}
+        </Text>
+      );
+    }
+    if (
+      (part.startsWith('*') && part.endsWith('*') && part.length >= 2) ||
+      (part.startsWith('_') && part.endsWith('_') && part.length >= 2)
+    ) {
+      return (
+        <Text key={key} style={[baseStyle, styles.italicText]}>
+          {part.slice(1, -1)}
+        </Text>
+      );
+    }
+    return (
+      <Text key={key} style={baseStyle}>
+        {part}
+      </Text>
+    );
+  });
+}
+
+function renderMarkdownBlock(text: string, blockIndex: number): React.ReactNode {
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let currentParagraphLines: string[] = [];
+
+  const flushParagraph = (pIdx: number) => {
+    if (currentParagraphLines.length > 0) {
+      const paragraphText = currentParagraphLines.join('\n');
+      elements.push(
+        <Text
+          key={`b${blockIndex}_p${pIdx}`}
+          style={[styles.botText, styles.paragraphSpacing]}
+          selectable>
+          {renderInlineMarkdown(paragraphText, styles.botText, `b${blockIndex}_p${pIdx}`)}
+        </Text>
+      );
+      currentParagraphLines = [];
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph(i);
+      continue;
+    }
+
+    // Dividers
+    if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+      flushParagraph(i);
+      elements.push(<View key={`b${blockIndex}_div_${i}`} style={styles.markdownDivider} />);
+      continue;
+    }
+
+    // Heading 3
+    if (trimmed.startsWith('### ')) {
+      flushParagraph(i);
+      elements.push(
+        <View key={`b${blockIndex}_h3_${i}`} style={styles.headingBlock}>
+          <View style={styles.headingIndicator} />
+          <Text style={styles.heading3Text} selectable>
+            {renderInlineMarkdown(trimmed.slice(4).trim(), styles.heading3Text, `b${blockIndex}_h3_${i}`)}
+          </Text>
+        </View>
+      );
+      continue;
+    }
+
+    // Heading 2
+    if (trimmed.startsWith('## ')) {
+      flushParagraph(i);
+      elements.push(
+        <View key={`b${blockIndex}_h2_${i}`} style={styles.headingBlock}>
+          <Text style={styles.heading2Text} selectable>
+            {renderInlineMarkdown(trimmed.slice(3).trim(), styles.heading2Text, `b${blockIndex}_h2_${i}`)}
+          </Text>
+        </View>
+      );
+      continue;
+    }
+
+    // Heading 1
+    if (trimmed.startsWith('# ')) {
+      flushParagraph(i);
+      elements.push(
+        <View key={`b${blockIndex}_h1_${i}`} style={styles.headingBlock}>
+          <Text style={styles.heading1Text} selectable>
+            {renderInlineMarkdown(trimmed.slice(2).trim(), styles.heading1Text, `b${blockIndex}_h1_${i}`)}
+          </Text>
+        </View>
+      );
+      continue;
+    }
+
+    // Blockquote
+    if (trimmed.startsWith('> ')) {
+      flushParagraph(i);
+      elements.push(
+        <View key={`b${blockIndex}_quote_${i}`} style={styles.blockquoteBlock}>
+          <Text style={styles.blockquoteText} selectable>
+            {renderInlineMarkdown(trimmed.slice(2).trim(), styles.blockquoteText, `b${blockIndex}_quote_${i}`)}
+          </Text>
+        </View>
+      );
+      continue;
+    }
+
+    // Bullet points (*, -, +, •)
+    const bulletMatch = trimmed.match(/^(\*|-|\+|•)\s+(.*)/);
+    if (bulletMatch) {
+      flushParagraph(i);
+      elements.push(
+        <View key={`b${blockIndex}_bullet_${i}`} style={styles.bulletRow}>
+          <View style={styles.bulletDot} />
+          <Text style={styles.bulletText} selectable>
+            {renderInlineMarkdown(bulletMatch[2], styles.bulletText, `b${blockIndex}_bullet_${i}`)}
+          </Text>
+        </View>
+      );
+      continue;
+    }
+
+    // Numbered lists (1., 2., 3., 1), etc.)
+    const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)/);
+    if (numberedMatch) {
+      flushParagraph(i);
+      elements.push(
+        <View key={`b${blockIndex}_num_${i}`} style={styles.numberedRow}>
+          <View style={styles.numberedBadge}>
+            <Text style={styles.numberedBadgeText}>{numberedMatch[1]}</Text>
+          </View>
+          <Text style={styles.numberedText} selectable>
+            {renderInlineMarkdown(numberedMatch[2], styles.numberedText, `b${blockIndex}_num_${i}`)}
+          </Text>
+        </View>
+      );
+      continue;
+    }
+
+    // Otherwise, normal text line for paragraph
+    currentParagraphLines.push(line);
+  }
+
+  flushParagraph(lines.length);
+
+  return (
+    <View key={`b${blockIndex}_container`} style={{ gap: 2 }}>
+      {elements}
+    </View>
+  );
+}
+
 function MessageContent({
   content,
   role,
@@ -3833,18 +4400,20 @@ function MessageContent({
   role: Role;
   isMediaUser?: boolean;
 }) {
-  if (role === 'user' || !content.includes('```')) {
+  if (role === 'user') {
     return (
       <Text
-        style={
-          isMediaUser
-            ? styles.userMediaText
-            : role === 'user'
-            ? styles.userText
-            : styles.botText
-        }
+        style={isMediaUser ? styles.userMediaText : styles.userText}
         selectable>
         {content || '…'}
+      </Text>
+    );
+  }
+
+  if (!content) {
+    return (
+      <Text style={styles.botText} selectable>
+        …
       </Text>
     );
   }
@@ -3870,11 +4439,7 @@ function MessageContent({
         if (!part.trim()) {
           return null;
         }
-        return (
-          <Text key={index} style={styles.botText} selectable>
-            {part.trim()}
-          </Text>
-        );
+        return renderMarkdownBlock(part, index);
       })}
     </View>
   );
@@ -5489,6 +6054,171 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: C.accent,
+  },
+
+  // Multi-Download Card & Warnings
+  multiDownloadCard: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 14,
+    padding: 12,
+    gap: 10,
+  },
+  ramWarningBox: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+    marginTop: 4,
+  },
+  ramWarningTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  ramWarningText: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 17,
+  },
+  modelRamNotice: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  modelRamNoticeText: {
+    fontSize: 11,
+    color: '#DC2626',
+    fontWeight: '600',
+    lineHeight: 15,
+  },
+
+  // Structured Markdown Formatting Styles
+  boldText: {
+    fontWeight: '700',
+    color: C.text,
+  },
+  italicText: {
+    fontStyle: 'italic',
+  },
+  inlineCode: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    backgroundColor: '#F1F5F9',
+    color: C.accent,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 5,
+    fontSize: 13.5,
+  },
+  headingBlock: {
+    marginTop: 10,
+    marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headingIndicator: {
+    width: 3.5,
+    height: 16,
+    backgroundColor: C.accent,
+    borderRadius: 2,
+  },
+  heading1Text: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.text,
+    letterSpacing: -0.2,
+  },
+  heading2Text: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.text,
+    letterSpacing: -0.1,
+  },
+  heading3Text: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.text,
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 4,
+    marginBottom: 2,
+    paddingLeft: 4,
+  },
+  bulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.accent,
+    marginTop: 7,
+    marginRight: 8,
+  },
+  bulletText: {
+    flex: 1,
+    color: C.text,
+    fontSize: 14.5,
+    lineHeight: 21,
+  },
+  numberedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 4,
+    marginBottom: 2,
+    paddingLeft: 2,
+  },
+  numberedBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+    marginRight: 8,
+    paddingHorizontal: 5,
+  },
+  numberedBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.accent,
+  },
+  numberedText: {
+    flex: 1,
+    color: C.text,
+    fontSize: 14.5,
+    lineHeight: 21,
+  },
+  blockquoteBlock: {
+    borderLeftWidth: 3,
+    borderLeftColor: C.accent,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginVertical: 6,
+  },
+  blockquoteText: {
+    color: C.textSecondary,
+    fontSize: 14,
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+  markdownDivider: {
+    height: 1,
+    backgroundColor: C.border,
+    marginVertical: 10,
+  },
+  paragraphSpacing: {
+    marginBottom: 6,
   },
 });
 
